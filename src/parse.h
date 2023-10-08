@@ -19,19 +19,18 @@ typedef enum {
   TOK_CCURLY = 6,
   TOK_EQUALS = 7,
   TOK_PLUS = 8,
-  TOK_BANG = 9,
-  TOK_AMPER = 10,
-  TOK_BANGAMPER = 11,
-  TOK_DOUBLEEQ = 12,
-  TOK_BANGEQ = 13,
-  TOK_COMMA = 14,
-  TOK_IDENT = 15,
-  TOK_FUNCTION = 16,
-  TOK_IF = 17,
-  TOK_WHILE = 18,
+  TOK_DOUBLEEQ = 9,
+  TOK_BANGEQ = 10,
+  TOK_COMMA = 11,
+  TOK_IDENT = 12,
+  TOK_FUNCTION = 13,
+  TOK_IF = 14,
+  TOK_WHILE = 15,
+  TOK_ELIF = 16,
+  TOK_ELSE = 17,
 
   // The most important one.
-  TOK_STR = 19,
+  TOK_STR = 18,
 } TokenType;
 
 typedef struct {
@@ -46,11 +45,12 @@ typedef enum {
   NODE_FUNCDECL,
   NODE_TOP_EXPR,
   NODE_IF,
+  NODE_ELIF,
   NODE_WHILE,
 } NodeType;
 
 typedef enum {
-	OP_SET,
+  OP_SET,
   OP_CONCAT,
   OP_EQ,
   OP_NOT_EQ,
@@ -67,24 +67,23 @@ typedef enum {
   EXPR_TERM,
 } ExprType;
 
-
 typedef struct Expr {
   ExprType type;
   union {
-	  // String literal
+    // String literal
     Slice value;
 
-	// Identifier (variable name)
+    // Identifier (variable name)
     Slice ident;
 
-	// Function call with arguments
+    // Function call with arguments
     struct {
       Slice name;
-	  struct Expr *args;
-	  char num_args;
+      struct Expr *args;
+      char num_args;
     } call;
 
-	// Binary operation
+    // Binary operation
     struct {
       struct Expr *left;
       struct Expr *right;
@@ -113,7 +112,7 @@ typedef struct Node {
       // max 255 params
       char param_count;
 
-      struct Node **body;
+      struct Node *body;
       size_t body_node_count;
     } func_decl;
 
@@ -122,7 +121,7 @@ typedef struct Node {
     // }
     struct {
       Expr *expr;
-      struct Node **body;
+      struct Node *body;
       size_t body_node_count;
     } while_statement;
 
@@ -131,9 +130,19 @@ typedef struct Node {
     // }
     struct {
       Expr *expr;
-      struct Node **body;
+      struct Node *body;
       size_t body_node_count;
+
+      struct Node *elifs;
+      size_t num_elifs;
     } if_statement;
+
+    // } elif <expr> {
+    struct {
+      Expr *expr;
+      struct Node *body;
+      size_t body_node_count;
+    } elif_statement;
   };
 } Node;
 #endif

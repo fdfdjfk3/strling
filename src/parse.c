@@ -9,8 +9,6 @@ int is_op(TokenType type) {
   switch (type) {
   case TOK_EQUALS:
   case TOK_PLUS:
-  case TOK_AMPER:
-  case TOK_BANGAMPER:
   case TOK_DOUBLEEQ:
   case TOK_BANGEQ:
     return 1;
@@ -25,10 +23,6 @@ OpType to_optype(TokenType type) {
     return OP_SET;
   case TOK_PLUS:
     return OP_CONCAT;
-  case TOK_AMPER:
-    return OP_STR_AND;
-  case TOK_BANGAMPER:
-    return OP_STR_NAND;
   case TOK_DOUBLEEQ:
     return OP_EQ;
   case TOK_BANGEQ:
@@ -91,19 +85,15 @@ char bump(ParseState *state) {
 }
 
 void tok_ident_or_keyword(ParseState *state, TokenType *out_type) {
-  static size_t keyword_lengths[] = {
-      strlen("function"),
-      strlen("if"),
-      strlen("while"),
-  };
-  static size_t keywords_lengths_len = sizeof(keyword_lengths) / sizeof(size_t);
-
   // NOTE: make sure these are in the same order as in the enum
   static char *keywords[] = {
-      "function",
-      "if",
-      "while",
+      "function", "if", "while", "elif", "else",
   };
+  static size_t keyword_lengths[] = {
+      strlen("function"), strlen("if"),   strlen("while"),
+      strlen("elif"),     strlen("else"),
+  };
+  static size_t num_keywords = sizeof(keyword_lengths) / sizeof(size_t);
 
   const char *start = state->data + state->data_i - 1;
   while (isidentch(peek(state))) {
@@ -112,7 +102,7 @@ void tok_ident_or_keyword(ParseState *state, TokenType *out_type) {
   *out_type = TOK_IDENT;
 
   size_t len = (state->data + state->data_i) - start;
-  for (int i = 0; i < keywords_lengths_len; i++) {
+  for (int i = 0; i < num_keywords; i++) {
     if (keyword_lengths[i] == len && strncmp(start, keywords[i], len) == 0) {
       // The reason i add 'i' is because the enum variant is calculated based on
       // the keyword index. This works because TOK_FUNCTION should always be the
@@ -216,23 +206,19 @@ Token tok_next(ParseState *state) {
     case '+':
       type = TOK_PLUS;
       break;
-    case '!':
-      type = TOK_BANG;
-      next_type = tok_peek_type(state);
-      if (next_type == TOK_AMPER) {
-        type = TOK_BANGAMPER;
-        tok_next(state);
-      } else if (next_type == TOK_EQUALS) {
-        type = TOK_BANGEQ;
-        tok_next(state);
-      }
-      break;
-    case '&':
-      type = TOK_AMPER;
-      break;
     case ',':
       type = TOK_COMMA;
       break;
+    case '!':
+      next_type = tok_peek_type(state);
+      if (next_type == TOK_EQUALS) {
+        type = TOK_BANGEQ;
+        tok_next(state);
+        break;
+      }
+      puts("invalid token");
+      exit(1);
+	  break;
     }
   }
   printf("%lu, %lu\n", row, col);
@@ -274,8 +260,11 @@ Expr *parse_arg_list(ParseState *state, size_t *out_len);
 Expr *parse_expr_single(ParseState *state);
 Expr *parse_expr_bp(ParseState *state, int min_bp);
 Expr *parse_expr(ParseState *state);
-Node *parse_var_decl(ParseState *state);
-Node *parse(ParseState *state);
+Node *parse_if_statement(ParseState *state);
+Node *parse_while_statement(ParseState *state);
+Node *parse_func_decl(ParseState *state);
+Node *parse_body(ParseState *state, size_t *out_len, TokenType sentinel);
+void parse(ParseState *state);
 
 void print_expr(Expr *expr) {
   switch (expr->type) {
@@ -311,7 +300,7 @@ void print_expr(Expr *expr) {
 void print_ast(Node *node) {
   switch (node->type) {
   case NODE_PROGRAM:
-    printf("Program { ");
+    printf("Program: { ");
     for (int i = 0; i < node->program.program_len; i++) {
       print_ast(&node->program.nodes[i]);
       if (i < node->program.program_len - 1) {
@@ -320,14 +309,80 @@ void print_ast(Node *node) {
     }
     printf("}");
     break;
-	
+
   case NODE_TOP_EXPR:
-	printf("Expr { ");
-	print_expr(node->top_expr);
-	printf("}");
-	break;
+    printf("Expr: { ");
+    print_expr(node->top_expr);
+    printf("}");
+    break;
+  case NODE_IF:
+    printf("IfStatement: { ");
+    printf("Cond: { ");
+    print_expr(node->if_statement.expr);
+    printf("}, Body: { ");
+    for (int i = 0; i < node->if_statement.body_node_count; i++) {
+      print_ast(&node->if_statement.body[i]);
+      if (i < node->if_statement.body_node_count - 1) {
+        printf(", ");
+      }
+    }
+    printf("}, Elifs: { ");
+    for (int i = 0; i < node->if_statement.num_elifs; i++) {
+      print_ast(&node->if_statement.elifs[i]);
+      if (i < node->if_statement.num_elifs - 1) {
+        printf(", ");
+      }
+    }
+    break;
+  case NODE_ELIF:
+    printf("Elif: { ");
+    printf("Cond: { ");
+    print_expr(node->elif_statement.expr);
+    printf("}, Body: { ");
+    for (int i = 0; i < node->elif_statement.body_node_count; i++) {
+      print_ast(&node->elif_statement.body[i]);
+      if (i < node->elif_statement.body_node_count - 1) {
+        printf(", ");
+      }
+    }
+    printf("}}");
+    break;
+  case NODE_WHILE:
+    printf("WhileStatement: { ");
+    printf("Cond: { ");
+    print_expr(node->while_statement.expr);
+    printf("}, Body: { ");
+    for (int i = 0; i < node->while_statement.body_node_count; i++) {
+      print_ast(&node->while_statement.body[i]);
+      if (i < node->while_statement.body_node_count - 1) {
+        printf(", ");
+      }
+    }
+    break;
+  case NODE_FUNCDECL:
+    printf("FunctionDecl: { ");
+    printf("Name: %.*s, ", (int)node->func_decl.name.len,
+           node->func_decl.name.ptr);
+    printf("Params: { ");
+    for (int i = 0; i < node->func_decl.param_count; i++) {
+      printf("%.*s", (int)node->func_decl.param_names[i].len,
+             node->func_decl.param_names[i].ptr);
+      if (i < node->func_decl.param_count - 1) {
+        printf(", ");
+      }
+    }
+    printf("}, ");
+    printf("Body: { ");
+    for (int i = 0; i < node->func_decl.body_node_count; i++) {
+      print_ast(&node->func_decl.body[i]);
+      if (i < node->func_decl.body_node_count - 1) {
+        printf(", ");
+      }
+    }
+    printf("}}");
+    break;
   default:
-    printf("nuh uh\n");
+    puts("nuh uh");
     exit(1);
   }
 }
@@ -353,7 +408,7 @@ void infix_binding_power(OpType op, char *out_leftbp, char *out_rightbp) {
   case OP_SET:
     left = 1;
     right = 2;
-	break;
+    break;
   default:
     puts("TODO\n");
     exit(1);
@@ -461,7 +516,7 @@ Expr *parse_expr_single(ParseState *state) {
     }
   }
 
-	// TODO: make it so newline doesn't cause this
+  // TODO: make it so newline doesn't cause this
   puts("error, parse_expr_single\n");
   exit(1);
 }
@@ -490,7 +545,8 @@ Expr *parse_expr_bp(ParseState *state, int min_bp) {
     if (is_op(next_type) == 1) {
       op = to_optype(next_type);
     } else if (next_type == TOK_EOF || next_type == TOK_COMMA ||
-               next_type == TOK_CPAREN || next_type == TOK_NEWLINE) {
+               next_type == TOK_CPAREN || next_type == TOK_NEWLINE ||
+               next_type == TOK_OCURLY || next_type == TOK_CCURLY) {
       break;
     } else {
       puts("error, invalid operator in parse_expr_bp");
@@ -522,13 +578,162 @@ Expr *parse_expr(ParseState *state) {
   return expr;
 }
 
-Node *parse(ParseState *state) {
-  state->ast = alloc_node(NODE_PROGRAM);
+Node *parse_if_statement(ParseState *state) {
+  if (expect(state, TOK_IF) == 0) {
+    puts("error, parse_if_statement");
+    exit(1);
+  }
+
+  Expr *expr = parse_expr(state);
+  if (expect(state, TOK_OCURLY) == 0) {
+    puts("error, parse_if_statement");
+    exit(1);
+  }
+
+  size_t len;
+  Node *body = parse_body(state, &len, TOK_CCURLY);
+  if (expect(state, TOK_CCURLY) == 0) {
+    puts("error, parse_if_statement");
+    exit(1);
+  }
+
+  Node *statement = alloc_node(NODE_IF);
+  statement->if_statement.expr = expr;
+  statement->if_statement.body = body;
+  statement->if_statement.body_node_count = len;
+
+  TokenType next;
+
+  Node *elifs = NULL;
+  size_t num_elifs = 0;
+
+  while ((next = tok_peek_type(state)) == TOK_ELIF) {
+    tok_next(state);
+    Expr *expr = parse_expr(state);
+    if (expect(state, TOK_OCURLY) == 0) {
+      puts("error, parse_if_statement");
+      exit(1);
+    }
+
+    size_t len;
+    Node *body = parse_body(state, &len, TOK_CCURLY);
+
+    num_elifs += 1;
+    elifs = realloc(elifs, sizeof(Node) * num_elifs);
+    elifs[num_elifs - 1].type = NODE_ELIF;
+    elifs[num_elifs - 1].elif_statement.expr = expr;
+    elifs[num_elifs - 1].elif_statement.body = body;
+    elifs[num_elifs - 1].elif_statement.body_node_count = len;
+
+    if (expect(state, TOK_CCURLY) == 0) {
+      puts("error, parse_if_statement");
+      exit(1);
+    }
+  }
+  statement->if_statement.elifs = elifs;
+  statement->if_statement.num_elifs = num_elifs;
+  return statement;
+}
+
+Node *parse_while_statement(ParseState *state) {
+  if (expect(state, TOK_WHILE) == 0) {
+    puts("error, parse_while_statement");
+    exit(1);
+  }
+
+  Expr *expr = parse_expr(state);
+  if (expect(state, TOK_OCURLY) == 0) {
+    puts("error, parse_while_statement");
+    exit(1);
+  }
+
+  size_t len;
+  Node *body = parse_body(state, &len, TOK_CCURLY);
+  if (expect(state, TOK_CCURLY) == 0) {
+    puts("error, parse_while_statement");
+    exit(1);
+  }
+
+  Node *statement = alloc_node(NODE_WHILE);
+  statement->while_statement.expr = expr;
+  statement->while_statement.body = body;
+  statement->while_statement.body_node_count = len;
+  return statement;
+}
+
+Node *parse_func_decl(ParseState *state) {
+  if (expect(state, TOK_FUNCTION) == 0) {
+    puts("error, parse_func_decl");
+    exit(1);
+  }
+
+  Token name = tok_next(state);
+  if (name.type != TOK_IDENT) {
+    puts("grrr u cant define a function with a non ident");
+    exit(1);
+  }
+
+  // parse parameter list
+  if (expect(state, TOK_OPAREN) == 0) {
+    puts("error, parse_func_decl");
+    exit(1);
+  }
+
+  Slice *params = NULL;
+  size_t num_params = 0;
+  Token temp;
+  while ((temp = tok_next(state)).type != TOK_CPAREN) {
+    printf("%d\n", temp.type);
+    if (temp.type == TOK_IDENT) {
+      num_params += 1;
+      params = realloc(params, sizeof(Slice) * num_params);
+      params[num_params - 1] = temp.slice;
+
+      Token next = tok_next(state);
+      if (next.type == TOK_COMMA) {
+        continue;
+      }
+      if (next.type == TOK_CPAREN) {
+        break;
+      } else {
+        puts("error, invalid token found in parameter list");
+        exit(1);
+      }
+    }
+    puts("error, invalid token found in parameter list fkdjf");
+    exit(1);
+  }
+
+  if (expect(state, TOK_OCURLY) == 0) {
+    puts("error, parse_func_decl");
+    exit(1);
+  }
+
+  size_t len;
+  Node *body = parse_body(state, &len, TOK_CCURLY);
+
+  if (expect(state, TOK_CCURLY) == 0) {
+    puts("error, parse_func_decl");
+    exit(1);
+  }
+
+  Node *decl = alloc_node(NODE_FUNCDECL);
+  decl->func_decl.body_node_count = len;
+  decl->func_decl.body = body;
+  decl->func_decl.name = name.slice;
+  decl->func_decl.param_names = params;
+  decl->func_decl.param_count = num_params;
+
+  return decl;
+}
+
+Node *parse_body(ParseState *state, size_t *out_len, TokenType sentinel) {
   Node *nodes = malloc(sizeof(Node));
   size_t nodes_len = 0;
 
   TokenType token_type;
-  while ((token_type = tok_peek_type(state)) != TOK_EOF) {
+  // TODO: clean up this loop, it was very hastily put together.
+  while ((token_type = tok_peek_type(state)) != sentinel) {
     if (token_type == TOK_IDENT) {
       Expr *expr = parse_expr(state);
       Node *node = alloc_node(NODE_TOP_EXPR);
@@ -538,25 +743,64 @@ Node *parse(ParseState *state) {
       free(node);
       nodes_len += 1;
       nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
-    } else {
-		tok_next(state);
-	}
-  }
-  state->ast->program.nodes = nodes;
-  state->ast->program.program_len = nodes_len;
+    } else if (token_type == TOK_IF) {
+      Node *node = parse_if_statement(state);
 
-  return state->ast;
+      nodes[nodes_len] = *node;
+      free(node);
+      nodes_len += 1;
+      nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
+    } else if (token_type == TOK_WHILE) {
+      Node *node = parse_while_statement(state);
+
+      nodes[nodes_len] = *node;
+      free(node);
+      nodes_len += 1;
+      nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
+    } else if (token_type == TOK_FUNCTION) {
+      Node *node = parse_func_decl(state);
+
+      nodes[nodes_len] = *node;
+      free(node);
+      nodes_len += 1;
+      nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
+    } else if (token_type == TOK_EOF) {
+      break;
+    } else {
+      tok_next(state);
+    }
+  }
+
+  *out_len = nodes_len;
+  return nodes;
+}
+
+void parse(ParseState *state) {
+  state->ast = alloc_node(NODE_PROGRAM);
+  size_t len;
+  Node *nodes = parse_body(state, &len, TOK_EOF);
+  state->ast->program.program_len = len;
+  state->ast->program.nodes = nodes;
 }
 
 void test() {
-  const char *mock_file =
-      "x = test(\"asdf\" + \"mkmd\" + func(\"a\", \"b\")) + \"hai\"\n"
-      "my_str_var = x == \"help\" != func() + \"hi\"\n";
+  const char *mock_file = "args = get_argv()\n"
+                          "\n"
+                          "temp = pop_left_delim(args, \",\")\n"
+                          "\n"
+                          "concat = \"\"\n"
+                          "while temp != \"\" {\n"
+                          "\tconcat = concat + temp\n"
+                          "\ttemp = pop_left_delim(args, \",\")\n"
+                          "}\n"
+                          "\n"
+                          "print(concat)";
+
   const size_t len = strlen(mock_file);
   ParseState ps = make_parser(mock_file, len);
 
-  Node *ast = parse(&ps);
+  parse(&ps);
 
-  print_ast(ast);
+  print_ast(ps.ast);
   puts("");
 }

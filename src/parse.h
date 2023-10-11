@@ -1,13 +1,9 @@
 #ifndef PARSE_H
 #define PARSE_H
 #include <stdlib.h>
+#include "types.h"
 
 void test();
-
-typedef struct {
-  const char *ptr;
-  size_t len;
-} Slice;
 
 typedef enum {
   TOK_UNKNOWN = 0,

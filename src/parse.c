@@ -40,11 +40,17 @@ typedef struct {
   const char *data;
 
   Node *ast;
+
+  Interner *interner;
 } ParseState;
 
-ParseState make_parser(const char *data, size_t len) {
-  ParseState ps = (ParseState){
-      .row = 0, .col = 0, .data_len = len, .data_i = 0, .data = data};
+ParseState make_parser(const char *data, size_t len, Interner *i) {
+  ParseState ps = (ParseState){.row = 0,
+                               .col = 0,
+                               .data_len = len,
+                               .data_i = 0,
+                               .data = data,
+                               .interner = i};
   return ps;
 }
 
@@ -54,8 +60,8 @@ ParseState make_parser(const char *data, size_t len) {
 
 int isidentch(char ch);
 char bump(ParseState *state);
-void tok_ident_or_keyword(ParseState *state, TokenType *out_type);
-char *tok_str(ParseState *state, size_t *out_len);
+TokenType tok_ident_or_keyword(ParseState *state);
+StrId tok_str(ParseState *state);
 Token tok_next(ParseState *state);
 TokenType tok_peek_type(ParseState *state);
 
@@ -66,6 +72,8 @@ char peek(ParseState *state) {
   }
   return state->data[state->data_i];
 }
+
+char peekch(ParseState *state) { return state->data[state->data_i]; }
 
 char bump(ParseState *state) {
   if (state->data_i >= state->data_len) {
@@ -84,7 +92,7 @@ char bump(ParseState *state) {
   return byte;
 }
 
-void tok_ident_or_keyword(ParseState *state, TokenType *out_type) {
+TokenType tok_ident_or_keyword(ParseState *state) {
   // NOTE: make sure these are in the same order as in the enum
   static char *keywords[] = {
       "function", "if", "while", "elif", "else",
@@ -99,7 +107,6 @@ void tok_ident_or_keyword(ParseState *state, TokenType *out_type) {
   while (isidentch(peek(state))) {
     bump(state);
   }
-  *out_type = TOK_IDENT;
 
   size_t len = (state->data + state->data_i) - start;
   for (int i = 0; i < num_keywords; i++) {
@@ -107,12 +114,13 @@ void tok_ident_or_keyword(ParseState *state, TokenType *out_type) {
       // The reason i add 'i' is because the enum variant is calculated based on
       // the keyword index. This works because TOK_FUNCTION should always be the
       // first keyword defined in the TokeType enum.
-      *out_type = TOK_FUNCTION + i;
+      return TOK_FUNCTION + i;
     }
   }
+  return TOK_IDENT;
 }
 
-char *tok_str(ParseState *state, size_t *out_len) {
+StrId tok_str(ParseState *state) {
   size_t capacity = 50;
   char *buf = malloc(capacity);
   if (buf == NULL) {
@@ -134,46 +142,44 @@ char *tok_str(ParseState *state, size_t *out_len) {
     buf[idx] = next;
     idx += 1;
   }
-  buf = realloc(buf, idx + 1);
-  // null terminate it lol
-  buf[idx] = '\0';
 
-  // return values
-  *out_len = idx;
-  return buf;
+  buf = realloc(buf, idx);
+  StrId ret = interner_intern_noalloc(state->interner, buf, idx);
+
+  return ret;
 }
 
 Token tok_next(ParseState *state) {
-  const size_t row = state->row;
-  const size_t col = state->col;
-  const size_t start = state->data_i;
+  char peek = peekch(state);
+  while (isspace(peek) && peek != '\n') {
+    bump(state);
+    peek = peekch(state);
+  }
+
+  size_t row = state->row;
+  size_t col = state->col;
+  size_t start = state->data_i;
 
   // where the thing starts
   const char *ptr = state->data + state->data_i;
   TokenType type = TOK_UNKNOWN;
 
   char byte = bump(state);
-  while (isspace(byte) && byte != '\n') {
-    byte = bump(state);
-  }
 
   if (byte == '"') {
     // String!!!
-    size_t len = 0;
-    ptr = tok_str(state, &len);
+    StrId str = tok_str(state);
 
     printf("%lu, %lu\n", row, col);
     return (Token){
-        .slice = (Slice){.ptr = ptr, .len = len},
+        .str = str,
         .row = row,
         .col = col,
         .type = TOK_STR,
     };
 
   } else if (isidentch(byte)) {
-    TokenType out;
-    tok_ident_or_keyword(state, &out);
-    type = out;
+    type = tok_ident_or_keyword(state);
   } else {
     TokenType next_type;
     switch (byte) {
@@ -218,12 +224,12 @@ Token tok_next(ParseState *state) {
       }
       puts("invalid token");
       exit(1);
-	  break;
+      break;
     }
   }
   printf("%lu, %lu\n", row, col);
   return (Token){
-      .slice = (Slice){.ptr = ptr, .len = state->data_i - start},
+      .str = interner_intern(state->interner, ptr, state->data_i - start),
       .row = row,
       .col = col,
       .type = type,
@@ -236,10 +242,6 @@ TokenType tok_peek_type(ParseState *state) {
   size_t data_i = state->data_i;
 
   Token token = tok_next(state);
-
-  if (token.type == TOK_STR) {
-    free((void *)token.slice.ptr);
-  }
 
   state->row = row;
   state->col = col;
@@ -269,10 +271,10 @@ void parse(ParseState *state);
 void print_expr(Expr *expr) {
   switch (expr->type) {
   case EXPR_IDENT:
-    printf("Ident: %.*s", (int)expr->ident.len, expr->ident.ptr);
+    printf("Ident: %.*s", (int)expr->ident->len, expr->ident->ptr);
     break;
   case EXPR_VALUE:
-    printf("Value: %.*s", (int)expr->value.len, expr->value.ptr);
+    printf("Value: %.*s", (int)expr->value->len, expr->value->ptr);
     break;
   case EXPR_TERM:
     printf("Term: { ");
@@ -284,7 +286,7 @@ void print_expr(Expr *expr) {
     break;
   case EXPR_CALL:
     printf("Call: { ");
-    printf("Name: %.*s, ", (int)expr->call.name.len, expr->call.name.ptr);
+    printf("Name: %.*s, ", (int)expr->call.name->len, expr->call.name->ptr);
     printf("Args: { ");
     for (int i = 0; i < expr->call.num_args; i++) {
       print_expr(&expr->call.args[i]);
@@ -361,12 +363,12 @@ void print_ast(Node *node) {
     break;
   case NODE_FUNCDECL:
     printf("FunctionDecl: { ");
-    printf("Name: %.*s, ", (int)node->func_decl.name.len,
-           node->func_decl.name.ptr);
+    printf("Name: %.*s, ", (int)node->func_decl.name->len,
+           node->func_decl.name->ptr);
     printf("Params: { ");
     for (int i = 0; i < node->func_decl.param_count; i++) {
-      printf("%.*s", (int)node->func_decl.param_names[i].len,
-             node->func_decl.param_names[i].ptr);
+      printf("%.*s", (int)node->func_decl.param_names[i]->len,
+             node->func_decl.param_names[i]->ptr);
       if (i < node->func_decl.param_count - 1) {
         printf(", ");
       }
@@ -490,7 +492,7 @@ Expr *parse_expr_single(ParseState *state) {
   Expr *expr;
   if (t.type == TOK_STR) {
     Expr *expr = alloc_expr(EXPR_VALUE);
-    expr->value = t.slice;
+    expr->value = t.str;
 
     return expr;
 
@@ -504,13 +506,13 @@ Expr *parse_expr_single(ParseState *state) {
       Expr *expr = alloc_expr(EXPR_CALL);
       expr->call.args = args;
       expr->call.num_args = len;
-      expr->call.name = t.slice;
+      expr->call.name = t.str;
 
       return expr;
 
     } else {
       Expr *expr = alloc_expr(EXPR_IDENT);
-      expr->ident = t.slice;
+      expr->ident = t.str;
 
       return expr;
     }
@@ -679,15 +681,15 @@ Node *parse_func_decl(ParseState *state) {
     exit(1);
   }
 
-  Slice *params = NULL;
+  StrId *params = NULL;
   size_t num_params = 0;
   Token temp;
   while ((temp = tok_next(state)).type != TOK_CPAREN) {
     printf("%d\n", temp.type);
     if (temp.type == TOK_IDENT) {
       num_params += 1;
-      params = realloc(params, sizeof(Slice) * num_params);
-      params[num_params - 1] = temp.slice;
+      params = realloc(params, sizeof(StrId) * num_params);
+      params[num_params - 1] = temp.str;
 
       Token next = tok_next(state);
       if (next.type == TOK_COMMA) {
@@ -720,7 +722,7 @@ Node *parse_func_decl(ParseState *state) {
   Node *decl = alloc_node(NODE_FUNCDECL);
   decl->func_decl.body_node_count = len;
   decl->func_decl.body = body;
-  decl->func_decl.name = name.slice;
+  decl->func_decl.name = name.str;
   decl->func_decl.param_names = params;
   decl->func_decl.param_count = num_params;
 
@@ -783,7 +785,19 @@ void parse(ParseState *state) {
   state->ast->program.nodes = nodes;
 }
 
-void test() {
+void print_interner(Interner *i) {
+  StrTable *table = &i->table;
+  for (int i = 0; i < table->max_entries; i++) {
+    if (table->entries[i] != NULL) {
+      Slice str = *table->entries[i];
+      printf("%d: ", i);
+      fwrite(str.ptr, str.len, 1, stdout);
+      puts("");
+    }
+  }
+}
+
+void test(Interner *i) {
   const char *mock_file = "args = get_argv()\n"
                           "\n"
                           "temp = pop_left_delim(args, \",\")\n"
@@ -797,10 +811,12 @@ void test() {
                           "print(concat)";
 
   const size_t len = strlen(mock_file);
-  ParseState ps = make_parser(mock_file, len);
+  ParseState ps = make_parser(mock_file, len, i);
 
   parse(&ps);
 
   print_ast(ps.ast);
+  puts("");
+  print_interner(ps.interner);
   puts("");
 }

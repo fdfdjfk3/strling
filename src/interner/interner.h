@@ -9,7 +9,7 @@ typedef struct {
 	Slice **entries;
 } StrTable;
 
-StrId table_addstr(StrTable *t, Slice str);
+StrId table_addstr(StrTable *t, Slice str, int should_alloc_str);
 
 typedef struct {
   StrTable table;
@@ -18,5 +18,6 @@ typedef struct {
 Interner interner_new();
 void interner_init(Interner *i);
 StrId interner_intern(Interner *i, const char *ptr, size_t len);
+StrId interner_intern_noalloc(Interner *i, const char *ptr, size_t len);
 
 #endif

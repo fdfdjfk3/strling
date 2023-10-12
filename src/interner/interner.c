@@ -20,7 +20,7 @@ uint32_t MurmurOAAT_32(const char *str, size_t len) {
 }
 
 // adds str if it doesn't exist, else returns pointer of existing string
-StrId table_addstr(StrTable *t, Slice str) {
+StrId table_addstr(StrTable *t, Slice str, int should_alloc_str) {
   if (t->occupied > (t->max_entries / 2)) {
     puts("This error occured because the table was large enough to start being "
          "slower. I need to implement table resizing :3");
@@ -44,9 +44,11 @@ StrId table_addstr(StrTable *t, Slice str) {
     idx = (idx + 1) % t->max_entries;
   }
 
-  char *alloced_str = malloc(sizeof(char) * str.len);
-  strncpy(alloced_str, str.ptr, str.len);
-  str.ptr = alloced_str;
+  if (should_alloc_str) {
+    char *alloced_str = malloc(sizeof(char) * str.len);
+    strncpy(alloced_str, str.ptr, str.len);
+    str.ptr = alloced_str;
+  }
 
   t->entries[idx] = malloc(sizeof(Slice));
   *(t->entries[idx]) = str;
@@ -70,14 +72,13 @@ void interner_init(Interner *i) {
 
 // This should be used instead of table_addstr directly to handle null str
 StrId interner_intern(Interner *i, const char *ptr, size_t len) {
-  if (ptr == NULL || len == 0) {
-    return STRID_EMPTY;
-  }
   Slice str = (Slice){.ptr = ptr, .len = len};
 
-  return table_addstr(&i->table, str);
+  return table_addstr(&i->table, str, 1);
 }
 
-// Slice interner_getstr(Interner *i, StrId id) {
-  // return table_getstr(&i->table, id);
-// }
+StrId interner_intern_noalloc(Interner *i, const char *ptr, size_t len) {
+  Slice str = (Slice){.ptr = ptr, .len = len};
+
+  return table_addstr(&i->table, str, 0);
+}

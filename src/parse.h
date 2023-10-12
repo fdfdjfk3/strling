@@ -2,8 +2,9 @@
 #define PARSE_H
 #include <stdlib.h>
 #include "types.h"
+#include "interner/interner.h"
 
-void test();
+void test(Interner *i);
 
 typedef enum {
   TOK_UNKNOWN = 0,
@@ -30,7 +31,7 @@ typedef enum {
 } TokenType;
 
 typedef struct {
-  Slice slice;
+  StrId str;
   size_t row, col;
   TokenType type;
 } Token;
@@ -67,14 +68,14 @@ typedef struct Expr {
   ExprType type;
   union {
     // String literal
-    Slice value;
+    StrId value;
 
     // Identifier (variable name)
-    Slice ident;
+    StrId ident;
 
     // Function call with arguments
     struct {
-      Slice name;
+      StrId name;
       struct Expr *args;
       char num_args;
     } call;
@@ -103,8 +104,8 @@ typedef struct Node {
     //   <body>
     // }
     struct {
-      Slice name;
-      Slice *param_names;
+      StrId name;
+      StrId *param_names;
       // max 255 params
       char param_count;
 

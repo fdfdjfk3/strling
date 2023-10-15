@@ -1,5 +1,5 @@
 #include "essential.h"
-#include "../interner/interner.h"
+#include "../globals.h"
 #include <stdio.h>
 
 StrId SLprint(Interner *interner, StrId str) {

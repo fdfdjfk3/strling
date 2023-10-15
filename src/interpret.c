@@ -53,17 +53,28 @@ StrId eval_expr(Machine *machine, Expr *expr) {
       right = eval_expr(machine, expr->term.right);
       return str_concat(machine->interner, left, right);
 
+    } else if (op == OP_EQ) {
+      left = eval_expr(machine, expr->term.left);
+      right = eval_expr(machine, expr->term.right);
+      return (left == right) ? interner_intern(machine->interner, "true", 4)
+                             : interner_intern(machine->interner, "false", 5);
+
+    } else if (op == OP_NOT_EQ) {
+      left = eval_expr(machine, expr->term.left);
+      right = eval_expr(machine, expr->term.right);
+      return (left != right) ? interner_intern(machine->interner, "true", 4)
+                             : interner_intern(machine->interner, "false", 5);
+
     } else {
       puts("unimplemented");
       exit(1);
     }
-	break;
+    break;
   case EXPR_CALL:
     if (0) {
     }
     StrId name = expr->call.name;
-    SLprint(machine->interner, expr->call.args[0].value);
-    break;
+    return SLprint(machine->interner, eval_expr(machine, &expr->call.args[0]));
 
   default:
     puts("unimplemented");
@@ -83,6 +94,28 @@ void interpret_node(Machine *machine, Node *ast) {
     if (0) {
     }
     eval_expr(machine, ast->top_expr);
+    break;
+  case NODE_IF:
+    if (0) {
+    }
+    StrId expr = eval_expr(machine, ast->if_statement.expr);
+    if (expr == interner_intern_noalloc(machine->interner, "true", 4)) {
+      for (size_t i = 0; i < ast->if_statement.body_node_count; i++) {
+        interpret_node(machine, &ast->if_statement.body[i]);
+      }
+    } else {
+      for (size_t i = 0; i < ast->if_statement.num_elifs; i++) {
+        Node *elif = &ast->if_statement.elifs[i];
+        StrId elif_expr = eval_expr(machine, elif->elif_statement.expr);
+        if (elif_expr ==
+            interner_intern_noalloc(machine->interner, "true", 4)) {
+          for (size_t i = 0; i < elif->elif_statement.body_node_count; i++) {
+            interpret_node(machine, &elif->elif_statement.body[i]);
+          }
+		  break;
+        }
+      }
+    }
     break;
   default:
     puts("unimplemented");

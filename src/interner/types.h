@@ -11,5 +11,5 @@ typedef struct {
 #endif
 
 typedef Slice* StrId;
-#define STRID_EMPTY NULL;
+#define STRID_NULL NULL;
 

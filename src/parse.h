@@ -4,8 +4,6 @@
 #include "types.h"
 #include "interner/interner.h"
 
-void test(Interner *i);
-
 typedef enum {
   TOK_UNKNOWN = 0,
   TOK_EOF = 1,
@@ -25,9 +23,10 @@ typedef enum {
   TOK_WHILE = 15,
   TOK_ELIF = 16,
   TOK_ELSE = 17,
+  TOK_RETURN = 18,
 
   // The most important one.
-  TOK_STR = 18,
+  TOK_STR = 19,
 } TokenType;
 
 typedef struct {
@@ -44,6 +43,7 @@ typedef enum {
   NODE_IF,
   NODE_ELIF,
   NODE_WHILE,
+  NODE_RETURN,
 } NodeType;
 
 typedef enum {
@@ -140,6 +140,12 @@ typedef struct Node {
       struct Node *body;
       size_t body_node_count;
     } elif_statement;
+
+	// return <expr>
+	Expr *return_statement;
   };
 } Node;
+
+Node *test(Interner *i);
+
 #endif

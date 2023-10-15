@@ -95,11 +95,11 @@ char bump(ParseState *state) {
 TokenType tok_ident_or_keyword(ParseState *state) {
   // NOTE: make sure these are in the same order as in the enum
   static char *keywords[] = {
-      "function", "if", "while", "elif", "else",
+      "function", "if", "while", "elif", "else", "return",
   };
   static size_t keyword_lengths[] = {
       strlen("function"), strlen("if"),   strlen("while"),
-      strlen("elif"),     strlen("else"),
+      strlen("elif"),     strlen("else"), strlen("return"),
   };
   static size_t num_keywords = sizeof(keyword_lengths) / sizeof(size_t);
 
@@ -139,7 +139,17 @@ StrId tok_str(ParseState *state) {
       capacity *= 2;
       buf = realloc(buf, capacity);
     }
-    buf[idx] = next;
+	if (next == '\\') {
+		next = bump(state);
+		if (next == 'n') {
+			buf[idx] = '\n';
+		} else {
+			puts("escape seq not implemented");
+			exit(1);
+		}
+	} else {
+		buf[idx] = next;
+	}
     idx += 1;
   }
 
@@ -766,6 +776,15 @@ Node *parse_body(ParseState *state, size_t *out_len, TokenType sentinel) {
       free(node);
       nodes_len += 1;
       nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
+    } else if (token_type == TOK_RETURN && sentinel == TOK_CCURLY) {
+      Node return_statement = (Node){.type = NODE_RETURN};
+      tok_next(state);
+      Expr *expr = parse_expr(state);
+      return_statement.return_statement = expr;
+      nodes[nodes_len] = return_statement;
+      nodes_len += 1;
+      nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
+
     } else if (token_type == TOK_EOF) {
       break;
     } else {
@@ -797,19 +816,8 @@ void print_interner(Interner *i) {
   }
 }
 
-void test(Interner *i) {
-  const char *mock_file = "args = get_argv()\n"
-                          "\n"
-                          "temp = pop_left_delim(args, \",\")\n"
-                          "\n"
-                          "concat = \"\"\n"
-                          "while temp != \"\" {\n"
-                          "\tconcat = concat + temp\n"
-                          "\ttemp = pop_left_delim(args, \",\")\n"
-                          "}\n"
-                          "\n"
-                          "print(concat)";
-
+Node *test(Interner *i) {
+  const char *mock_file = "print(\"hello, world\\n\")";
   const size_t len = strlen(mock_file);
   ParseState ps = make_parser(mock_file, len, i);
 
@@ -819,4 +827,5 @@ void test(Interner *i) {
   puts("");
   print_interner(ps.interner);
   puts("");
+  return ps.ast;
 }

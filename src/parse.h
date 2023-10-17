@@ -16,17 +16,19 @@ typedef enum {
   TOK_PLUS = 8,
   TOK_DOUBLEEQ = 9,
   TOK_BANGEQ = 10,
-  TOK_COMMA = 11,
-  TOK_IDENT = 12,
-  TOK_FUNCTION = 13,
-  TOK_IF = 14,
-  TOK_WHILE = 15,
-  TOK_ELIF = 16,
-  TOK_ELSE = 17,
-  TOK_RETURN = 18,
+  TOK_AMPER = 11,
+  TOK_BANGAMPER = 12,
+  TOK_COMMA = 13,
+  TOK_IDENT = 14,
+  TOK_FUNCTION = 15,
+  TOK_IF = 16,
+  TOK_WHILE = 17,
+  TOK_ELIF = 18,
+  TOK_ELSE = 19,
+  TOK_RETURN = 20,
 
   // The most important one.
-  TOK_STR = 19,
+  TOK_STR = 21,
 } TokenType;
 
 typedef struct {
@@ -51,8 +53,8 @@ typedef enum {
   OP_CONCAT,
   OP_EQ,
   OP_NOT_EQ,
-  OP_STR_AND,
-  OP_STR_NAND,
+  OP_INTERSECTION,
+  OP_DIFFERENCE,
   OP_BOOL_AND,
   OP_BOOL_OR,
 } OpType;
@@ -146,6 +148,6 @@ typedef struct Node {
   };
 } Node;
 
-Node *test(Interner *i);
+Node *test();
 
 #endif

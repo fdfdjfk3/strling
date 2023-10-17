@@ -1,7 +1,7 @@
 #include "interpret.h"
+#include "globals.h"
 #include "scope.h"
-#include "std/sl_stdlib.h"
-#include "string.h"
+#include "slstd/sl_stdlib.h"
 #include <stdarg.h>
 #include <stdio.h>
 
@@ -18,10 +18,7 @@ typedef struct {
 typedef struct {
   Scope global_scope;
   Scope *current_scope;
-  Interner *interner;
 } Machine;
-
-StrId eval_term(Expr *expr) {}
 
 StrId eval_expr(Machine *machine, Expr *expr) {
   switch (expr->type) {
@@ -46,24 +43,22 @@ StrId eval_expr(Machine *machine, Expr *expr) {
       left = expr->term.left->ident;
       right = eval_expr(machine, expr->term.right);
       scope_add_var(machine->current_scope, left, right);
-      return interner_intern(machine->interner, "", 0);
+      return g_interner_intern("", 0);
 
     } else if (op == OP_CONCAT) {
       left = eval_expr(machine, expr->term.left);
       right = eval_expr(machine, expr->term.right);
-      return str_concat(machine->interner, left, right);
+      return SLconcat(&left, &right);
 
     } else if (op == OP_EQ) {
       left = eval_expr(machine, expr->term.left);
       right = eval_expr(machine, expr->term.right);
-      return (left == right) ? interner_intern(machine->interner, "true", 4)
-                             : interner_intern(machine->interner, "false", 5);
+      return (left == right) ? get_strid_true() : get_strid_false();
 
     } else if (op == OP_NOT_EQ) {
       left = eval_expr(machine, expr->term.left);
       right = eval_expr(machine, expr->term.right);
-      return (left != right) ? interner_intern(machine->interner, "true", 4)
-                             : interner_intern(machine->interner, "false", 5);
+      return (left != right) ? get_strid_true() : get_strid_false();
 
     } else {
       puts("unimplemented");
@@ -74,7 +69,8 @@ StrId eval_expr(Machine *machine, Expr *expr) {
     if (0) {
     }
     StrId name = expr->call.name;
-    return SLprint(machine->interner, eval_expr(machine, &expr->call.args[0]));
+    StrId val = eval_expr(machine, &expr->call.args[0]);
+    return SLprint(&val);
 
   default:
     puts("unimplemented");
@@ -99,7 +95,7 @@ void interpret_node(Machine *machine, Node *ast) {
     if (0) {
     }
     StrId expr = eval_expr(machine, ast->if_statement.expr);
-    if (expr == interner_intern_noalloc(machine->interner, "true", 4)) {
+    if (expr == get_strid_true()) {
       for (size_t i = 0; i < ast->if_statement.body_node_count; i++) {
         interpret_node(machine, &ast->if_statement.body[i]);
       }
@@ -107,12 +103,11 @@ void interpret_node(Machine *machine, Node *ast) {
       for (size_t i = 0; i < ast->if_statement.num_elifs; i++) {
         Node *elif = &ast->if_statement.elifs[i];
         StrId elif_expr = eval_expr(machine, elif->elif_statement.expr);
-        if (elif_expr ==
-            interner_intern_noalloc(machine->interner, "true", 4)) {
+        if (elif_expr == get_strid_true()) {
           for (size_t i = 0; i < elif->elif_statement.body_node_count; i++) {
             interpret_node(machine, &elif->elif_statement.body[i]);
           }
-		  break;
+          break;
         }
       }
     }
@@ -123,11 +118,10 @@ void interpret_node(Machine *machine, Node *ast) {
   }
 }
 
-void interpret(Interner *interner, Node *ast) {
+void interpret(Node *ast) {
   Scope global_scope =
       (Scope){.parent = NULL, .declarations = NULL, .num_declarations = 0};
-  Machine machine = (Machine){.interner = interner,
-                              .global_scope = global_scope,
-                              .current_scope = &global_scope};
+  Machine machine =
+      (Machine){.global_scope = global_scope, .current_scope = &global_scope};
   interpret_node(&machine, ast);
 }

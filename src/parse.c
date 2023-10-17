@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "parse.h"
+#include "globals.h"
 
 int is_op(TokenType type) {
   switch (type) {
@@ -11,6 +12,8 @@ int is_op(TokenType type) {
   case TOK_PLUS:
   case TOK_DOUBLEEQ:
   case TOK_BANGEQ:
+  case TOK_AMPER:
+  case TOK_BANGAMPER:
     return 1;
   default:
     return 0;
@@ -27,6 +30,10 @@ OpType to_optype(TokenType type) {
     return OP_EQ;
   case TOK_BANGEQ:
     return OP_NOT_EQ;
+  case TOK_AMPER:
+	return OP_INTERSECTION;
+  case TOK_BANGAMPER:
+	return OP_DIFFERENCE;
   default:
     puts("No matching optype\n");
     exit(1);
@@ -40,17 +47,15 @@ typedef struct {
   const char *data;
 
   Node *ast;
-
-  Interner *interner;
 } ParseState;
 
-ParseState make_parser(const char *data, size_t len, Interner *i) {
+ParseState make_parser(const char *data, size_t len) {
   ParseState ps = (ParseState){.row = 0,
                                .col = 0,
                                .data_len = len,
                                .data_i = 0,
                                .data = data,
-                               .interner = i};
+                               };
   return ps;
 }
 
@@ -154,7 +159,7 @@ StrId tok_str(ParseState *state) {
   }
 
   buf = realloc(buf, idx);
-  StrId ret = interner_intern_noalloc(state->interner, buf, idx);
+  StrId ret = g_interner_intern_noalloc(buf, idx);
 
   return ret;
 }
@@ -180,7 +185,7 @@ Token tok_next(ParseState *state) {
     // String!!!
     StrId str = tok_str(state);
 
-    printf("%lu, %lu\n", row, col);
+    // printf("%lu, %lu\n", row, col);
     return (Token){
         .str = str,
         .row = row,
@@ -231,15 +236,22 @@ Token tok_next(ParseState *state) {
         type = TOK_BANGEQ;
         tok_next(state);
         break;
+      } else if (next_type == TOK_AMPER) {
+        type = TOK_BANGAMPER;
+        tok_next(state);
+        break;
       }
       puts("invalid token");
       exit(1);
       break;
+    case '&':
+      type = TOK_AMPER;
+      break;
     }
   }
-  printf("%lu, %lu\n", row, col);
+  // printf("%lu, %lu\n", row, col);
   return (Token){
-      .str = interner_intern(state->interner, ptr, state->data_i - start),
+      .str = g_interner_intern(ptr, state->data_i - start),
       .row = row,
       .col = col,
       .type = type,
@@ -247,17 +259,58 @@ Token tok_next(ParseState *state) {
 }
 
 TokenType tok_peek_type(ParseState *state) {
-  size_t row = state->row;
-  size_t col = state->col;
-  size_t data_i = state->data_i;
+  ParseState copy = *state;
 
-  Token token = tok_next(state);
+  char peek = peekch(&copy);
+  while (isspace(peek) && peek != '\n') {
+    bump(&copy);
+    peek = peekch(&copy);
+  }
 
-  state->row = row;
-  state->col = col;
-  state->data_i = data_i;
+  char next = bump(&copy);
 
-  return token.type;
+  if (next == '"') {
+    return TOK_STR;
+  } else if (isidentch(next)) {
+    return tok_ident_or_keyword(&copy);
+  } else {
+    switch (next) {
+    case EOF:
+      return TOK_EOF;
+    case '\n':
+      return TOK_NEWLINE;
+    case '(':
+      return TOK_OPAREN;
+    case ')':
+      return TOK_CPAREN;
+    case '{':
+      return TOK_OCURLY;
+    case '}':
+      return TOK_CCURLY;
+    case '=':
+      if (tok_peek_type(&copy) == TOK_EQUALS) {
+        return TOK_DOUBLEEQ;
+      }
+      return TOK_EQUALS;
+    case '+':
+      return TOK_PLUS;
+    case ',':
+      return TOK_COMMA;
+    case '!': {
+      TokenType peek = tok_peek_type(&copy);
+      if (peek == TOK_EQUALS) {
+        return TOK_BANGEQ;
+      } else if (peek == TOK_AMPER) {
+        return TOK_BANGAMPER;
+      }
+    }
+    case '&':
+      return TOK_AMPER;
+    default:
+      break;
+    }
+  }
+  return TOK_UNKNOWN;
 }
 
 //---------------------------
@@ -404,6 +457,11 @@ void infix_binding_power(OpType op, char *out_leftbp, char *out_rightbp) {
   char right;
   switch (op) {
   case OP_CONCAT:
+    left = 9;
+    right = 10;
+    break;
+  case OP_DIFFERENCE:
+  case OP_INTERSECTION:
     left = 7;
     right = 8;
     break;
@@ -546,7 +604,13 @@ Expr *parse_expr_bp(ParseState *state, int min_bp) {
     infix_binding_power(op, &ignore, &rightbp);
     Expr *rhs = parse_expr_bp(state, rightbp);
     lhs = rhs;
-
+  } else if (temp == TOK_OPAREN) {
+    tok_next(state);
+    lhs = parse_expr_bp(state, 0);
+    if (expect(state, TOK_CPAREN) == 0) {
+      puts("NO CLOSING PAREN fdlksfa jaslkfjdslfsf");
+      exit(1);
+    }
   } else {
     lhs = parse_expr_single(state);
   }
@@ -816,23 +880,16 @@ void print_interner(Interner *i) {
   }
 }
 
-Node *test(Interner *i) {
-  const char *mock_file = "var = \"swag\"\n"
-	  "if var == \"a\" {\n"
-	  "\tprint(\"first\")\n"
-	  "} elif var {\n"
-	  "\tprint(\"second\")\n"
-	  "} elif var == \"swag\" {\n"
-	  "\tprint(var + \" messiah\")\n"
-	  "}";
-  const size_t len = strlen(mock_file);
-  ParseState ps = make_parser(mock_file, len, i);
+Node *test() {
+  const char *mock_file = "print((\"a\" == \"a\") + \"eeee\")\n";
+	  const size_t len = strlen(mock_file);
+  ParseState ps = make_parser(mock_file, len);
 
   parse(&ps);
 
   print_ast(ps.ast);
   puts("");
-  print_interner(ps.interner);
+  print_interner(get_global_interner());
   puts("");
   return ps.ast;
 }

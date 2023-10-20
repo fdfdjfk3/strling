@@ -39,7 +39,7 @@ typedef struct {
 
 typedef enum {
   NODE_PROGRAM,
-  NODE_VARDECL,
+  // NODE_VARDECL,
   NODE_FUNCDECL,
   NODE_TOP_EXPR,
   NODE_IF,
@@ -148,6 +148,7 @@ typedef struct Node {
   };
 } Node;
 
+void print_interner(Interner *i);
 Node *test();
 
 #endif

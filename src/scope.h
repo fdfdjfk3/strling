@@ -30,6 +30,7 @@ typedef struct Scope {
 	struct Scope *parent;
 	Decl *declarations;
 	size_t num_declarations;
+	size_t capacity;
 } Scope;
 
 void scope_add_var(Scope *scope, StrId name, StrId value);
@@ -38,5 +39,7 @@ StrId scope_get_var(Scope *scope, StrId name);
 FuncDecl *scope_get_func(Scope *scope, StrId name);
 Scope *scope_make_child(Scope *parent);
 Scope *scope_delete(Scope *scope);
+void scope_clear(Scope *scope);
+Scope scope_make();
 
 #endif

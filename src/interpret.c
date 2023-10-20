@@ -60,22 +60,27 @@ StrId eval_expr(Machine *machine, Expr *expr) {
       right = eval_expr(machine, expr->term.right);
       return (left != right) ? get_strid_true() : get_strid_false();
 
-    } else {
-      puts("unimplemented");
-      exit(1);
-    }
-    break;
-  case EXPR_CALL:
-    if (0) {
-    }
-    StrId name = expr->call.name;
-    StrId val = eval_expr(machine, &expr->call.args[0]);
-    return SLprint(&val);
-
-  default:
+    } else if (op == OP_INTERSECTION) {
+      left = eval_expr(machine, expr->term.left);
+      right = eval_expr(machine, expr->term.right);
+      return SLintersect(&left, &right);
+	}
+  else {
     puts("unimplemented");
     exit(1);
   }
+  break;
+case EXPR_CALL:
+  if (0) {
+  }
+  StrId name = expr->call.name;
+  StrId val = eval_expr(machine, &expr->call.args[0]);
+  return SLprint(&val);
+
+default:
+  puts("unimplemented");
+  exit(1);
+}
 }
 
 void interpret_node(Machine *machine, Node *ast) {
@@ -84,21 +89,20 @@ void interpret_node(Machine *machine, Node *ast) {
     for (int i = 0; i < ast->program.program_len; i++) {
       interpret_node(machine, &ast->program.nodes[i]);
     }
-
     break;
+
   case NODE_TOP_EXPR:
-    if (0) {
-    }
     eval_expr(machine, ast->top_expr);
     break;
-  case NODE_IF:
-    if (0) {
-    }
+
+  case NODE_IF: {
     StrId expr = eval_expr(machine, ast->if_statement.expr);
     if (expr == get_strid_true()) {
+      machine->current_scope = scope_make_child(machine->current_scope);
       for (size_t i = 0; i < ast->if_statement.body_node_count; i++) {
         interpret_node(machine, &ast->if_statement.body[i]);
       }
+      machine->current_scope = scope_delete(machine->current_scope);
     } else {
       for (size_t i = 0; i < ast->if_statement.num_elifs; i++) {
         Node *elif = &ast->if_statement.elifs[i];
@@ -112,6 +116,21 @@ void interpret_node(Machine *machine, Node *ast) {
       }
     }
     break;
+  }
+
+  case NODE_WHILE: {
+    machine->current_scope = scope_make_child(machine->current_scope);
+    while (eval_expr(machine, ast->while_statement.expr) == get_strid_true()) {
+      for (size_t i = 0; i < ast->while_statement.body_node_count; i++) {
+        interpret_node(machine, &ast->if_statement.body[i]);
+      }
+      scope_clear(machine->current_scope);
+    }
+    machine->current_scope = scope_delete(machine->current_scope);
+
+    break;
+  }
+
   default:
     puts("unimplemented");
     exit(1);
@@ -119,8 +138,7 @@ void interpret_node(Machine *machine, Node *ast) {
 }
 
 void interpret(Node *ast) {
-  Scope global_scope =
-      (Scope){.parent = NULL, .declarations = NULL, .num_declarations = 0};
+  Scope global_scope = scope_make();
   Machine machine =
       (Machine){.global_scope = global_scope, .current_scope = &global_scope};
   interpret_node(&machine, ast);

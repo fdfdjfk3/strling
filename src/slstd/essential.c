@@ -29,3 +29,23 @@ StrId SLconcat(StrId *str1, StrId *str2) {
 
   return g_interner_intern_noalloc(buf, new_len);
 }
+
+StrId SLintersect(StrId *str1, StrId *str2) {
+  StrId slice1 = *str1;
+  StrId slice2 = *str2;
+
+  size_t min_len = ((slice1->len < slice2->len) ? slice1->len : slice2->len);
+
+  char *buf = malloc(sizeof(char) * min_len);
+  const char *ptr1 = slice1->ptr;
+  const char *ptr2 = slice2->ptr;
+  size_t n = 0;
+  for (size_t i = 0; i < min_len; i++) {
+    if (ptr1[i] == ptr2[i]) {
+      buf[n] = ptr1[i];
+      n += 1;
+    }
+  }
+  buf = realloc(buf, sizeof(char) * n);
+  return g_interner_intern_noalloc(buf, n);
+}

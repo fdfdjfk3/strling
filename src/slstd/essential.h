@@ -4,4 +4,5 @@
 
 StrId SLprint(StrId *str);
 StrId SLconcat(StrId *str1, StrId *str2);
+StrId SLintersect(StrId *str1, StrId *str2);
 #endif

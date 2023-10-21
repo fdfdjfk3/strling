@@ -38,9 +38,9 @@ StrId table_addstr(StrTable *t, Slice str, int should_alloc_str) {
     if (slice.len == str.len) {
       if (strncmp(slice.ptr, str.ptr, str.len) == 0) {
         // looks like it already exists lol
-		if (should_alloc_str == 0) {
-			free((void *)str.ptr);
-		}
+        if (should_alloc_str == 0) {
+          free((void *)str.ptr);
+        }
         return t->entries[idx];
       }
     }

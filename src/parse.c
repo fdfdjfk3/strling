@@ -881,7 +881,13 @@ void print_interner(Interner *i) {
 }
 
 Node *test() {
-  const char *mock_file = "print((\"hello\" & \"HEll\") + \"\n\")\n";
+  const char *mock_file = "function a(x) {\n"
+	  "\ty = x\n"
+                          "\ty = y + \"hi\"\n"
+                          "}\n"
+                          "var = \"hello\"\n"
+                          "a(var)\n"
+                          "print(var + \"\n\")\n";
   const size_t len = strlen(mock_file);
   ParseState ps = make_parser(mock_file, len);
 

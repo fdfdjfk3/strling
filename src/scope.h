@@ -10,6 +10,14 @@ typedef enum {
 } DeclType;
 
 typedef struct {
+	int is_ref;
+	union {
+		StrId value;
+		StrId *ref;
+	};
+} VarDecl;
+
+typedef struct {
 	StrId *param_names;
 	char param_count;
 	Node *body;
@@ -21,23 +29,21 @@ typedef struct {
 	StrId ident;
 
 	union {
-		StrId var_value;
+		VarDecl var;
 		FuncDecl func;
 	};
 } Decl;
 
 typedef struct Scope {
+	struct Scope *logical_parent;
 	struct Scope *parent;
 	Decl *declarations;
 	size_t num_declarations;
 	size_t capacity;
 } Scope;
 
-void scope_add_var(Scope *scope, StrId name, StrId value);
-void scope_add_func(Scope *scope, Node *func);
-StrId scope_get_var(Scope *scope, StrId name);
-FuncDecl *scope_get_func(Scope *scope, StrId name);
-Scope *scope_make_child(Scope *parent);
+void scope_resize_if_necessary(Scope *scope);
+Scope *scope_make_child(Scope *parent, int logical_child);
 Scope *scope_delete(Scope *scope);
 void scope_clear(Scope *scope);
 Scope scope_make();

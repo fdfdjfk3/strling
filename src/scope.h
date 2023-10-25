@@ -1,45 +1,46 @@
 #ifndef SCOPE_H
 #define SCOPE_H
 
-#include "types.h"
 #include "parse.h"
+#include "types.h"
 
 typedef enum {
-	DECL_VAR,
-	DECL_FUNC,
+    DECL_VAR,
+    DECL_FUNC,
 } DeclType;
 
 typedef struct {
-	int is_ref;
-	union {
-		StrId value;
-		StrId *ref;
-	};
+    int is_ref;
+    union {
+        StrId value;
+        StrId *ref;
+    };
 } VarDecl;
 
 typedef struct {
-	StrId *param_names;
-	char param_count;
-	Node *body;
-	size_t body_len;
+    StrId *param_names;
+    int *param_is_ref;
+    char param_count;
+    Node *body;
+    size_t body_len;
 } FuncDecl;
 
 typedef struct {
-	DeclType type;
-	StrId ident;
+    DeclType type;
+    StrId ident;
 
-	union {
-		VarDecl var;
-		FuncDecl func;
-	};
+    union {
+        VarDecl var;
+        FuncDecl func;
+    };
 } Decl;
 
 typedef struct Scope {
-	struct Scope *logical_parent;
-	struct Scope *parent;
-	Decl *declarations;
-	size_t num_declarations;
-	size_t capacity;
+    struct Scope *logical_parent;
+    struct Scope *parent;
+    Decl *declarations;
+    size_t num_declarations;
+    size_t capacity;
 } Scope;
 
 void scope_resize_if_necessary(Scope *scope);

@@ -1,8 +1,8 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
-#include "types.h"
 #include "interner/interner.h"
+#include "types.h"
 
 void g_interner_init();
 StrId g_interner_intern(const char *ptr, size_t len);

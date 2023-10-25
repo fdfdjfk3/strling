@@ -4,15 +4,15 @@
 #include "types.h"
 
 typedef struct {
-	unsigned int occupied;
-	size_t max_entries;
-	Slice **entries;
+    unsigned int occupied;
+    size_t max_entries;
+    Slice **entries;
 } StrTable;
 
 StrId table_addstr(StrTable *t, Slice str, int should_alloc_str);
 
 typedef struct {
-  StrTable table;
+    StrTable table;
 } Interner;
 
 Interner interner_new();

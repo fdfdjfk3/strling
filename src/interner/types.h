@@ -8,7 +8,9 @@ typedef struct {
     size_t len;
     const char *ptr;
 } Slice;
-#endif
 
 typedef Slice *StrId;
+
 #define STRID_NULL NULL
+#endif
+

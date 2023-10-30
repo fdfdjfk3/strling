@@ -596,12 +596,10 @@ Expr *parse_expr_single(ParseState *state) {
 }
 
 Expr *parse_expr_bp(ParseState *state, int min_bp) {
-
     Expr *lhs;
     TokenType temp = tok_peek_type(state);
     printf("%d\n", temp);
     if (is_op(temp) == 1) {
-        printf("hi\n");
         tok_next(state);
         OpType op = to_optype(temp);
         char ignore, rightbp;

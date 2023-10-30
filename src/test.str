@@ -1,0 +1,31 @@
+? (this is a comment) print all args together as one string
+
+?? this function uhhh does stuff
+function hehehe(ref str, randomstr) {
+	? heeeeelp help meee heeelp
+	str = "fdsfdfsfdsfdsfd"
+	while randomstr != str {
+		println("what does this code even DO!")
+		randomstr = randomstr & str
+		if some_variable_idk_lol_im_running_out_of_ideas {
+			return "vvvvvvvvvvvvvffsdfd"
+		} elif some_variable_2 {
+			break
+		}
+	}
+	return "deez"
+}
+
+
+
+args = get_argv()
+
+temp = pop_left_delim(args, ",")
+
+concat = ""
+while temp != "" {
+	concat = concat + temp
+	temp = pop_left_delim(args, ",")
+}
+
+print(concat)

@@ -41,7 +41,7 @@ typedef enum {
 
 typedef struct {
     StrId str;
-    size_t row, col;
+    size_t row, col, i;
     TokenType type;
 } Token;
 

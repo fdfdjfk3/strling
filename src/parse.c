@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "error.h"
 #include "globals.h"
 #include "parse.h"
 
@@ -35,7 +36,7 @@ OpType to_optype(TokenType type) {
     case TOK_BANGAMPER:
         return OP_DIFFERENCE;
     default:
-        puts("No matching optype\n");
+        puts("to_optype: reached unreachable code\n");
         exit(1);
     }
 }
@@ -45,6 +46,8 @@ typedef struct {
     size_t data_i;
     size_t data_len;
     const char *data;
+
+    int has_errored;
 
     Node *ast;
 } ParseState;
@@ -131,7 +134,7 @@ StrId tok_str(ParseState *state) {
     size_t capacity = 50;
     char *buf = malloc(capacity);
     if (buf == NULL) {
-        puts("Error allocating string token");
+        puts("tok_str: Allocation error");
         exit(1);
     }
 
@@ -139,8 +142,9 @@ StrId tok_str(ParseState *state) {
     char next;
     while ((next = bump(state)) != '"') {
         if (next == EOF) {
-            puts("Tried to parse string but ran into EOF\n");
-            exit(1);
+            error_print(state->data, state->data_i, state->row, state->col,
+                        "Error parsing string; ran into EOF");
+            return g_interner_intern("", 0);
         }
         if (idx == capacity) {
             capacity *= 2;
@@ -153,8 +157,13 @@ StrId tok_str(ParseState *state) {
             } else if (next == '0') {
                 buf[idx] = '\0';
             } else {
-                puts("escape seq not implemented");
-                exit(1);
+                char seq[3];
+                seq[0] = '\\';
+                seq[1] = next;
+                seq[2] = 0;
+                error_printf(state->data, state->data_i, state->row, state->col,
+                             "Invalid escape sequence '%s'.\n", seq);
+                buf[idx] = 'X';
             }
         } else {
             buf[idx] = next;
@@ -194,6 +203,7 @@ Token tok_next(ParseState *state) {
             .str = str,
             .row = row,
             .col = col,
+            .i = start,
             .type = TOK_STR,
         };
 
@@ -244,12 +254,15 @@ Token tok_next(ParseState *state) {
                 type = TOK_BANGAMPER;
                 tok_next(state);
                 break;
+            } else {
+                type = TOK_UNKNOWN;
             }
-            puts("invalid token");
-            exit(1);
             break;
         case '&':
             type = TOK_AMPER;
+            break;
+        default:
+            type = TOK_UNKNOWN;
             break;
         }
     }
@@ -258,6 +271,7 @@ Token tok_next(ParseState *state) {
         .str = g_interner_intern(ptr, state->data_i - start),
         .row = row,
         .col = col,
+        .i = start,
         .type = type,
     };
 }
@@ -307,6 +321,7 @@ TokenType tok_peek_type(ParseState *state) {
             } else if (peek == TOK_AMPER) {
                 return TOK_BANGAMPER;
             }
+            return TOK_UNKNOWN;
         }
         case '&':
             return TOK_AMPER;
@@ -334,6 +349,19 @@ Node *parse_while_statement(ParseState *state);
 Node *parse_func_decl(ParseState *state);
 Node *parse_body(ParseState *state, size_t *out_len, ParseContext context);
 void parse(ParseState *state);
+
+/// Expect the next token to be of a specific type. If it's not, print an error
+/// and return NULL.
+#define EXPECT(toktype)                                                        \
+    {                                                                          \
+        Token t = tok_next(state);                                             \
+        if (t.type != toktype) {                                               \
+            error_printf(state->data, t.i, t.row, t.col,                       \
+                         "Expected " #toktype ", but found '%.*s'.\n",         \
+                         (int)t.str->len, t.str->ptr);                         \
+            return NULL;                                                       \
+        }                                                                      \
+    }
 
 void print_expr(Expr *expr) {
     switch (expr->type) {
@@ -511,26 +539,25 @@ Expr *alloc_expr(ExprType type) {
     return expr;
 }
 
-int expect(ParseState *state, TokenType type) {
-    return tok_next(state).type == type;
-}
-
 Expr *parse_arg_list(ParseState *state, size_t *out_len) {
-    if (expect(state, TOK_OPAREN) == 0) {
-        puts("error, parse_arg_list");
-        exit(1);
-    }
+    EXPECT(TOK_OPAREN);
 
     Expr *args = NULL;
     size_t len = 0;
 
     TokenType peek;
     while ((peek = tok_peek_type(state)) != TOK_CPAREN) {
-        if (peek == TOK_EOF) {
-            puts("error, parse_expr_lhs");
-            exit(1);
+        if (peek != TOK_IDENT && peek != TOK_STR) {
+            Token t = tok_next(state);
+            error_printf(state->data, t.i - 1, t.row, t.col,
+                         "Invalid token '%.*s' found in function call.\n",
+                         (int)t.str->len, t.str->ptr);
+            return NULL;
         }
         Expr *expr = parse_expr(state);
+        if (expr == NULL) {
+            return NULL;
+        }
 
         if (args == NULL) {
             args = malloc(sizeof(Expr));
@@ -545,15 +572,16 @@ Expr *parse_arg_list(ParseState *state, size_t *out_len) {
 
         if (tok_peek_type(state) == TOK_COMMA) {
             tok_next(state);
+        } else if (tok_peek_type(state) != TOK_CPAREN) {
+            Token t = tok_next(state);
+            error_print(state->data, t.i - 1, t.row, t.col,
+                        "Expected closing parenthesis in function call.");
+            return NULL;
         }
     }
 
-    printf("going past paren\n");
-    if (expect(state, TOK_CPAREN) == 0) {
-
-        puts("error, parse_param_list\n");
-        exit(1);
-    }
+    // printf("going past paren\n");
+    EXPECT(TOK_CPAREN);
 
     *out_len = len;
     return args;
@@ -571,9 +599,12 @@ Expr *parse_expr_single(ParseState *state) {
     } else if (t.type == TOK_IDENT) {
         TokenType type = tok_peek_type(state);
         if (type == TOK_OPAREN) {
-            printf("%d\n", type);
+            // printf("%d\n", type);
             size_t len;
             Expr *args = parse_arg_list(state, &len);
+            if (args == NULL) {
+                return NULL;
+            }
 
             Expr *expr = alloc_expr(EXPR_CALL);
             expr->call.args = args;
@@ -590,31 +621,36 @@ Expr *parse_expr_single(ParseState *state) {
         }
     }
 
-    // TODO: make it so newline doesn't cause this
-    puts("error, parse_expr_single\n");
-    exit(1);
+    t = tok_next(state);
+    error_printf(state->data, t.i, t.row, t.col,
+                 "Unknown error occurred. Found '%.*s'\n", (int)t.str->len,
+                 t.str->ptr);
+    return NULL;
 }
 
 Expr *parse_expr_bp(ParseState *state, int min_bp) {
     Expr *lhs;
     TokenType temp = tok_peek_type(state);
-    printf("%d\n", temp);
+    // printf("%d\n", temp);
     if (is_op(temp) == 1) {
         tok_next(state);
         OpType op = to_optype(temp);
         char ignore, rightbp;
         infix_binding_power(op, &ignore, &rightbp);
         Expr *rhs = parse_expr_bp(state, rightbp);
+        if (rhs == NULL) {
+            return NULL;
+        }
         lhs = rhs;
     } else if (temp == TOK_OPAREN) {
         tok_next(state);
         lhs = parse_expr_bp(state, 0);
-        if (expect(state, TOK_CPAREN) == 0) {
-            puts("NO CLOSING PAREN fdlksfa jaslkfjdslfsf");
-            exit(1);
-        }
+        EXPECT(TOK_CPAREN);
     } else {
         lhs = parse_expr_single(state);
+        if (lhs == NULL) {
+            return NULL;
+        }
     }
 
     while (1) {
@@ -627,8 +663,14 @@ Expr *parse_expr_bp(ParseState *state, int min_bp) {
                    next_type == TOK_OCURLY || next_type == TOK_CCURLY) {
             break;
         } else {
-            puts("error, invalid operator in parse_expr_bp");
-            exit(1);
+            Token next = tok_next(state);
+            error_printf(
+                state->data, next.i, next.row, next.col,
+                "Expected expression continuation, but found '%.*s'.\n",
+                (int)next.str->len, next.str->ptr);
+            return NULL;
+            // puts("error, invalid operator in parse_expr_bp");
+            // exit(1);
         }
 
         char leftbp, rightbp;
@@ -657,23 +699,14 @@ Expr *parse_expr(ParseState *state) {
 }
 
 Node *parse_if_statement(ParseState *state) {
-    if (expect(state, TOK_IF) == 0) {
-        puts("error, parse_if_statement");
-        exit(1);
-    }
+    EXPECT(TOK_IF);
 
     Expr *expr = parse_expr(state);
-    if (expect(state, TOK_OCURLY) == 0) {
-        puts("error, parse_if_statement");
-        exit(1);
-    }
+    EXPECT(TOK_OCURLY);
 
     size_t len;
     Node *body = parse_body(state, &len, PARSE_BLOCK);
-    if (expect(state, TOK_CCURLY) == 0) {
-        puts("error, parse_if_statement");
-        exit(1);
-    }
+    EXPECT(TOK_CCURLY);
 
     Node *statement = alloc_node(NODE_IF);
     statement->if_statement.expr = expr;
@@ -688,10 +721,7 @@ Node *parse_if_statement(ParseState *state) {
     while ((next = tok_peek_type(state)) == TOK_ELIF) {
         tok_next(state);
         Expr *expr = parse_expr(state);
-        if (expect(state, TOK_OCURLY) == 0) {
-            puts("error, parse_if_statement");
-            exit(1);
-        }
+        EXPECT(TOK_OCURLY);
 
         size_t len;
         Node *body = parse_body(state, &len, PARSE_BLOCK);
@@ -703,10 +733,7 @@ Node *parse_if_statement(ParseState *state) {
         elifs[num_elifs - 1].elif_statement.body = body;
         elifs[num_elifs - 1].elif_statement.body_node_count = len;
 
-        if (expect(state, TOK_CCURLY) == 0) {
-            puts("error, parse_if_statement");
-            exit(1);
-        }
+        EXPECT(TOK_CCURLY);
     }
     statement->if_statement.elifs = elifs;
     statement->if_statement.num_elifs = num_elifs;
@@ -714,23 +741,14 @@ Node *parse_if_statement(ParseState *state) {
 }
 
 Node *parse_while_statement(ParseState *state) {
-    if (expect(state, TOK_WHILE) == 0) {
-        puts("error, parse_while_statement");
-        exit(1);
-    }
+    EXPECT(TOK_WHILE);
 
     Expr *expr = parse_expr(state);
-    if (expect(state, TOK_OCURLY) == 0) {
-        puts("error, parse_while_statement");
-        exit(1);
-    }
+    EXPECT(TOK_OCURLY);
 
     size_t len;
     Node *body = parse_body(state, &len, PARSE_BLOCK);
-    if (expect(state, TOK_CCURLY) == 0) {
-        puts("error, parse_while_statement");
-        exit(1);
-    }
+    EXPECT(TOK_CCURLY);
 
     Node *statement = alloc_node(NODE_WHILE);
     statement->while_statement.expr = expr;
@@ -740,22 +758,19 @@ Node *parse_while_statement(ParseState *state) {
 }
 
 Node *parse_func_decl(ParseState *state) {
-    if (expect(state, TOK_FUNCTION) == 0) {
-        puts("error, parse_func_decl");
-        exit(1);
-    }
+    EXPECT(TOK_FUNCTION);
 
     Token name = tok_next(state);
     if (name.type != TOK_IDENT) {
-        puts("grrr u cant define a function with a non ident");
-        exit(1);
+        error_printf(
+            state->data, name.i, name.row, name.col,
+            "Functions must be named with an identifier. Found '%.*s'\n",
+            (int)name.str->len, name.str->ptr);
+        return NULL;
     }
 
     // parse parameter list
-    if (expect(state, TOK_OPAREN) == 0) {
-        puts("error, parse_func_decl");
-        exit(1);
-    }
+    EXPECT(TOK_OPAREN);
 
     StrId *params = NULL;
     int *param_is_ref = NULL;
@@ -764,7 +779,7 @@ Node *parse_func_decl(ParseState *state) {
     Token temp;
     while ((temp = tok_next(state)).type != TOK_CPAREN) {
         int ref = 0;
-        printf("%d\n", temp.type);
+        // printf("%d\n", temp.type);
         if (temp.type == TOK_REF) {
             temp = tok_next(state);
             ref = 1;
@@ -784,27 +799,23 @@ Node *parse_func_decl(ParseState *state) {
             if (next.type == TOK_CPAREN) {
                 break;
             } else {
-                puts("error, invalid token found in parameter "
-                     "list");
-                exit(1);
+                error_printf(state->data, next.i, next.row, next.col,
+                             "Expected comma or closing parenthesis in "
+                             "parameter list. Found '%.*s'.\n",
+                             (int)next.str->len, next.str->ptr);
+                return NULL;
             }
         }
         puts("error, invalid token found in parameter list fkdjf");
         exit(1);
     }
 
-    if (expect(state, TOK_OCURLY) == 0) {
-        puts("error, parse_func_decl");
-        exit(1);
-    }
+    EXPECT(TOK_OCURLY);
 
     size_t len;
     Node *body = parse_body(state, &len, PARSE_FUNC);
 
-    if (expect(state, TOK_CCURLY) == 0) {
-        puts("error, parse_func_decl");
-        exit(1);
-    }
+    EXPECT(TOK_CCURLY);
 
     Node *decl = alloc_node(NODE_FUNCDECL);
     decl->func_decl.body_node_count = len;
@@ -816,6 +827,17 @@ Node *parse_func_decl(ParseState *state) {
 
     return decl;
 }
+
+/// For use in parse_body(). Push the parser to the next spot that it can
+/// reasonably start parsing again without error spam.
+#define RECOVER()                                                              \
+    {                                                                          \
+        Token t;                                                               \
+        while ((t = tok_next(state)).type != TOK_NEWLINE &&                    \
+               t.type != TOK_EOF) {                                            \
+        }                                                                      \
+        continue;                                                              \
+    }
 
 Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
     Node *nodes = malloc(sizeof(Node));
@@ -829,6 +851,10 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
     while ((token_type = tok_peek_type(state)) != sentinel) {
         if (token_type == TOK_IDENT) {
             Expr *expr = parse_expr(state);
+            if (expr == NULL) {
+                RECOVER();
+            }
+
             Node *node = alloc_node(NODE_TOP_EXPR);
             node->top_expr = expr;
 
@@ -838,6 +864,9 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_IF) {
             Node *node = parse_if_statement(state);
+            if (node == NULL) {
+                RECOVER();
+            }
 
             nodes[nodes_len] = *node;
             free(node);
@@ -845,6 +874,9 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_WHILE) {
             Node *node = parse_while_statement(state);
+            if (node == NULL) {
+                RECOVER();
+            }
 
             nodes[nodes_len] = *node;
             free(node);
@@ -852,16 +884,21 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_FUNCTION) {
             Node *node = parse_func_decl(state);
+            if (node == NULL) {
+                RECOVER();
+            }
 
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
             nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_RETURN) {
-
             Node return_statement = (Node){.type = NODE_RETURN};
             tok_next(state);
             Expr *expr;
+            if (expr == NULL) {
+                RECOVER();
+            }
             if (tok_peek_type(state) != TOK_NEWLINE) {
                 expr = parse_expr(state);
             } else {
@@ -872,13 +909,11 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes_len += 1;
             nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_CONTINUE) {
-
             tok_next(state);
             nodes[nodes_len] = (Node){.type = NODE_CONTINUE};
             nodes_len += 1;
             nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_BREAK) {
-
             tok_next(state);
             nodes[nodes_len] = (Node){.type = NODE_BREAK};
             nodes_len += 1;
@@ -920,13 +955,13 @@ Node *test() {
                             "\tprint(x)\n"
                             "\tif \"true\" {\n"
                             "\t\tif \"true\" {\n"
-                            "\t\t\treturn x + x + x + x\n"
+                            "\t\t\treturn x + (x & \"a\")\n"
                             "\t\t}\n"
                             "\t}\n"
                             "}\n"
                             "var = \"hello\"\n"
                             "test = a(var)\n"
-                            "print(var + \"\n\")\n"
+                            "print(var + \"\\n\")\n"
                             "print(test)\n"
                             "a = \"\"\n"
                             "while \"true\" {\n"
@@ -942,6 +977,9 @@ Node *test() {
     ParseState ps = make_parser(mock_file, len);
 
     parse(&ps);
+    if (error_get_num_errors() > 0) {
+        exit(0);
+    }
 
     // print_ast(ps.ast);
     puts("");

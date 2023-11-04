@@ -1,5 +1,6 @@
 #include "interpret.h"
 #include "globals.h"
+#include "scope.h"
 #include "slstd/sl_stdlib.h"
 #include <stdio.h>
 
@@ -116,12 +117,35 @@ void machine_add_func(Machine *machine, StrId name, Node *func) {
     cur->declarations[cur->num_declarations] = (Decl){
         .type = DECL_FUNC,
         .ident = name,
-        .func = (FuncDecl){.body = func->func_decl.body,
-                           .body_len = func->func_decl.body_node_count,
-                           .param_count = func->func_decl.param_count,
-                           .param_names = func->func_decl.param_names,
-                           .param_is_ref = func->func_decl.param_is_ref}};
+        .func = (FuncDecl){.is_native = 1,
+                           .native = (NativeFuncDecl){
+                               .body = func->func_decl.body,
+                               .body_len = func->func_decl.body_node_count,
+                               .param_count = func->func_decl.param_count,
+                               .param_names = func->func_decl.param_names,
+                               .param_is_ref = func->func_decl.param_is_ref}}};
 
+    cur->num_declarations += 1;
+}
+
+void machine_add_builtin_func(Machine *machine, StrId name,
+                              BuiltinFuncDecl decl) {
+    Decl *existing_decl =
+        machine_get_decl_if_exists(machine, name, DECL_BUILTIN_FUNC);
+    if (existing_decl != NULL) {
+        printf("function shadowing is disallowed for now, i don't know if "
+               "that's a language feature i want to have in this language.");
+        exit(1);
+    }
+
+    Scope *cur = (machine->current_scope == NULL) ? &machine->global_scope
+                                                  : machine->current_scope;
+
+    scope_resize_if_necessary(cur);
+    cur->declarations[cur->num_declarations] =
+        (Decl){.type = DECL_BUILTIN_FUNC,
+               .ident = name,
+               .func = (FuncDecl){.is_native = 0, .builtin = decl}};
     cur->num_declarations += 1;
 }
 
@@ -158,7 +182,13 @@ StrId *machine_get_var_ref(Machine *machine, StrId name) {
 }
 
 FuncDecl machine_get_func(Machine *machine, StrId name) {
-    Decl *decl = machine_get_decl_if_exists(machine, name, DECL_FUNC);
+    Decl *decl = machine_get_decl_if_exists(machine, name, DECL_BUILTIN_FUNC);
+    if (decl != NULL) {
+        return decl->func;
+    }
+
+    decl = machine_get_decl_if_exists(machine, name, DECL_FUNC);
+
     if (decl == NULL) {
         printf("Tried to access function '%.*s', but it didn't exist in the "
                "current scope or a parent scope.\n",
@@ -166,6 +196,35 @@ FuncDecl machine_get_func(Machine *machine, StrId name) {
         exit(1);
     }
     return decl->func;
+}
+
+void machine_import_builtin_lib(Machine *machine, BuiltinLib lib) {
+#define stringify(x) #x
+    switch (lib) {
+    case BUILTIN_LIB_ESSENTIAL: {
+		int *no_ref_1 = malloc(sizeof(int));
+		int *ref_1 = malloc(sizeof(int));
+		no_ref_1[0] = 0;
+		ref_1[0] = 1;
+        machine_add_builtin_func(machine, g_interner_intern("print", 5),
+                                 (BuiltinFuncDecl){.func = SLprint,
+                                                   .param_count = 1,
+                                                   .param_is_ref = no_ref_1});
+        machine_add_builtin_func(machine, g_interner_intern("pop", 3),
+                                 (BuiltinFuncDecl){.func = SLpop,
+                                                   .param_count = 1,
+                                                   .param_is_ref = ref_1});
+        machine_add_builtin_func(machine, g_interner_intern("popl", 4),
+                                 (BuiltinFuncDecl){.func = SLpopl,
+                                                   .param_count = 1,
+                                                   .param_is_ref = ref_1});
+        break;
+    }
+    default:
+        puts("Library " stringify(lib) " unimplemented");
+        exit(1);
+    }
+#undef stringify
 }
 
 StrId eval_expr(Machine *machine, Expr *expr) {
@@ -218,70 +277,138 @@ StrId eval_expr(Machine *machine, Expr *expr) {
     }
     case EXPR_CALL: {
         StrId name = expr->call.name;
-        if (name == g_interner_intern("print", 5)) {
-            StrId val = eval_expr(machine, &expr->call.args[0]);
-            return SLprint(val);
-        }
         FuncDecl func = machine_get_func(machine, name);
-        if (expr->call.num_args > func.param_count) {
-            printf("Called function '%.*s' with too many args. Called with %d "
-                   "args, "
-                   "function required %d\n",
-                   (int)name->len, name->ptr, expr->call.num_args,
-                   func.param_count);
-            exit(1);
-        }
-        StrId empty = get_strid_empty();
-        machine->current_scope = scope_make_child(machine->current_scope, 0);
-        for (size_t i = 0; i < func.param_count; i++) {
-            if (i < expr->call.num_args) {
-                if (func.param_is_ref[i]) {
+
+        // native functions have to be called differently.
+        if (func.is_native == 0) {
+            BuiltinFnArg args[255];
+            if (expr->call.num_args > func.builtin.param_count) {
+                printf("Called function '%.*s' with too many args. Called "
+                       "with %d "
+                       "args, "
+                       "function required %lu\n",
+                       (int)name->len, name->ptr, expr->call.num_args,
+                       func.builtin.param_count);
+                exit(EXIT_FAILURE);
+            }
+            for (size_t i = 0; i < func.builtin.param_count; i++) {
+                if (i >= expr->call.num_args) {
+                    if (func.builtin.param_is_ref[i]) {
+                        printf("Attempted to implicitly pass an empty string "
+                               "literal to an "
+                               "argument that requires an LVALUE string. "
+                               "Problematic call: "
+                               "%.*s, Problematic argument: arg %d\n",
+                               (int)expr->call.name->len, expr->call.name->ptr,
+                               (int)i);
+                        exit(EXIT_FAILURE);
+                    }
+                    args[i] =
+                        (BuiltinFnArg){.is_ref = 0, .value = get_strid_empty()};
+                    continue;
+                }
+
+                if (func.builtin.param_is_ref[i]) {
+					// printf("func: %.*s, %lu: %d\n", (int)expr->call.name->len, expr->call.name->ptr, i, func.builtin.param_is_ref[i]);
                     if (expr->call.args[i].type != EXPR_IDENT) {
-                        printf("Only identifiers are allowed to be used in "
+                        printf("Only identifiers are allowed to be "
+                               "used in "
                                "mutable function "
-                               "arguments, as other immediate values don't "
+                               "arguments, as other immediate values "
+                               "don't "
                                "have a place in "
-                               "memory. Problematic call: %.*s, Problematic "
+                               "memory. Problematic call: %.*s, "
+                               "Problematic "
                                "argument: arg "
                                "%lu\n",
                                (int)expr->call.name->len, expr->call.name->ptr,
                                i);
-                        exit(1);
+                        exit(EXIT_FAILURE);
+                    }
+                    args[i] =
+                        (BuiltinFnArg){.is_ref = 1,
+                                       .ref = machine_get_var_ref(
+                                           machine, expr->call.args[i].ident)};
+                    continue;
+                }
+
+                args[i] = (BuiltinFnArg){
+                    .is_ref = 0,
+                    .value = eval_expr(machine, &expr->call.args[i])};
+                continue;
+            }
+
+            // Call the function with the right args.
+			// printf("%lu\n", func.builtin.param_count);
+            return func.builtin.func((BuiltinFnArgList){
+                .len = func.builtin.param_count, .list = args});
+        }
+
+        if (expr->call.num_args > func.native.param_count) {
+            printf("Called function '%.*s' with too many args. Called "
+                   "with %d "
+                   "args, "
+                   "function required %lu\n",
+                   (int)name->len, name->ptr, expr->call.num_args,
+                   func.native.param_count);
+            exit(1);
+        }
+        StrId empty = get_strid_empty();
+        machine->current_scope = scope_make_child(machine->current_scope, 0);
+        for (size_t i = 0; i < func.native.param_count; i++) {
+            if (i < expr->call.num_args) {
+                if (func.native.param_is_ref[i]) {
+                    if (expr->call.args[i].type != EXPR_IDENT) {
+                        printf("Only identifiers are allowed to be "
+                               "used in "
+                               "mutable function "
+                               "arguments, as other immediate values "
+                               "don't "
+                               "have a place in "
+                               "memory. Problematic call: %.*s, "
+                               "Problematic "
+                               "argument: arg "
+                               "%lu\n",
+                               (int)expr->call.name->len, expr->call.name->ptr,
+                               i);
+                        exit(EXIT_FAILURE);
                     } else {
                         machine_set_var_ref(
-                            machine, func.param_names[i],
+                            machine, func.native.param_names[i],
                             machine_get_var_ref(machine,
                                                 expr->call.args[i].ident),
                             0);
                     }
                 } else {
-                    machine_set_var(machine, func.param_names[i],
+                    machine_set_var(machine, func.native.param_names[i],
                                     eval_expr(machine, &expr->call.args[i]), 0);
                 }
             } else {
-                if (func.param_is_ref[i]) {
+                if (func.native.param_is_ref[i]) {
                     printf("Attempted to implicitly pass an empty string "
                            "literal to an "
                            "argument that requires an LVALUE string. "
                            "Problematic call: "
                            "%.*s, Problematic argument: arg %lu\n",
                            (int)expr->call.name->len, expr->call.name->ptr, i);
-                    exit(1);
+                    exit(EXIT_FAILURE);
                 }
-                machine_set_var_ref(machine, func.param_names[i], &empty, 0);
+                machine_set_var_ref(machine, func.native.param_names[i], &empty,
+                                    0);
             }
         }
 
-        for (size_t i = 0; i < func.body_len; i++) {
-            interpret_node(machine, &func.body[i]);
+        for (size_t i = 0; i < func.native.body_len; i++) {
+            interpret_node(machine, &func.native.body[i]);
             if (machine->return_pending != NULL) {
                 StrId ret = machine->return_pending;
                 machine->return_pending = STRID_NULL;
                 return ret;
             }
             if (machine->is_break || machine->is_continue) {
-                puts("Invalid control flow statement with no match found.");
-                exit(1);
+                puts("Invalid control flow statement with no match "
+                     "found.");
+                exit(EXIT_FAILURE);
             }
         }
         machine->current_scope = scope_delete(machine->current_scope);
@@ -301,7 +428,8 @@ void interpret_node(Machine *machine, Node *ast) {
             interpret_node(machine, &ast->program.nodes[i]);
             if (machine->is_break || machine->is_continue ||
                 machine->return_pending) {
-                puts("Invalid control flow expression at top level scope.");
+                puts("Invalid control flow expression at top level "
+                     "scope.");
                 exit(1);
             }
         }
@@ -389,7 +517,8 @@ void interpret_node(Machine *machine, Node *ast) {
             }
             break;
         } else {
-            puts("Return statements are not allowed outside of functions.");
+            puts("Return statements are not allowed outside of "
+                 "functions.");
             exit(1);
         }
     }
@@ -419,5 +548,6 @@ void interpret(Node *ast) {
         .is_break = 0,
         .is_continue = 0,
     };
+    machine_import_builtin_lib(&machine, BUILTIN_LIB_ESSENTIAL);
     interpret_node(&machine, ast);
 }

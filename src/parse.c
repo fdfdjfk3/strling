@@ -896,11 +896,11 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             Node return_statement = (Node){.type = NODE_RETURN};
             tok_next(state);
             Expr *expr;
-            if (expr == NULL) {
-                RECOVER();
-            }
             if (tok_peek_type(state) != TOK_NEWLINE) {
                 expr = parse_expr(state);
+                if (expr == NULL) {
+                    RECOVER();
+                }
             } else {
                 expr = NULL;
             }
@@ -950,29 +950,11 @@ void print_interner(Interner *i) {
 }
 
 Node *test() {
-    const char *mock_file = "function a(ref x, y) {\n"
-                            "\tx = \"NAH\"\n"
-                            "\tprint(x)\n"
-                            "\tif \"true\" {\n"
-                            "\t\tif \"true\" {\n"
-                            "\t\t\treturn x + (x & \"a\")\n"
-                            "\t\t}\n"
-                            "\t}\n"
+    const char *mock_file = "str = \"hello world\"\n"
+                            "while str != \"\" {\n"
+                            "\tprint(popl(str) + \"\\n\")\n"
                             "}\n"
-                            "var = \"hello\"\n"
-                            "test = a(var)\n"
-                            "print(var + \"\\n\")\n"
-                            "print(test)\n"
-                            "a = \"\"\n"
-                            "while \"true\" {\n"
-                            "\tif a == \"aaaaa\" {\n"
-                            "\t\tbreak\n"
-                            "\t}\n"
-                            "\tprint(a)\n"
-                            "\ta = a + \"a\"\n"
-                            "}\n"
-                            "asdf = \"hello\\0 world\\n\"\n"
-                            "print(asdf)\n";
+							"print(popl(str))\n";
     const size_t len = strlen(mock_file);
     ParseState ps = make_parser(mock_file, len);
 

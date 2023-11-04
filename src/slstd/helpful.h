@@ -3,7 +3,7 @@
 
 #define EXPECT_STRID_ARG(varname, index)                                       \
     StrId varname;                                                             \
-    if (index <= args.len) {                                                   \
+    if (index >= args.len) {                                                   \
         printf("Too few arguments passed into %s, argument " #index            \
                " not found.\n",                                                \
                __func__);                                                      \
@@ -20,7 +20,7 @@
 
 #define EXPECT_STRID_REF_ARG(varname, index)                                   \
     StrId *varname;                                                            \
-    if (index <= args.len) {                                                   \
+    if (index >= args.len) {                                                   \
         printf("Too few arguments passed into %s, argument " #index            \
                " not found.\n",                                                \
                __func__);                                                      \

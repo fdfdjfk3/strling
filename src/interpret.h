@@ -15,6 +15,10 @@ typedef enum {
     I_BLOCK,
 } IContext;
 
+typedef enum {
+    BUILTIN_LIB_ESSENTIAL,
+} BuiltinLib;
+
 void interpret(Node *ast);
 void interpret_node(Machine *machine, Node *ast);
 StrId interpret_node_in_func(Machine *machine, Node *node);

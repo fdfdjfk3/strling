@@ -7,7 +7,7 @@
 typedef enum {
     DECL_VAR,
     DECL_FUNC,
-	DECL_BUILTIN_FUNC,
+    DECL_BUILTIN_FUNC,
 } DeclType;
 
 typedef struct {
@@ -21,16 +21,24 @@ typedef struct {
 typedef struct {
     StrId *param_names;
     int *param_is_ref;
-    char param_count;
+    size_t param_count;
     Node *body;
     size_t body_len;
-} FuncDecl;
+} NativeFuncDecl;
 
 typedef struct {
-	char param_count;
-	int *param_is_ref;
-	StrId (*func)(BuiltinFnArgList);
+	size_t param_count;
+    int *param_is_ref;
+    StrId (*func)(BuiltinFnArgList);
 } BuiltinFuncDecl;
+
+typedef struct {
+    int is_native;
+    union {
+        NativeFuncDecl native;
+        BuiltinFuncDecl builtin;
+    };
+} FuncDecl;
 
 typedef struct {
     DeclType type;

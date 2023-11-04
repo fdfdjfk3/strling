@@ -1,9 +1,12 @@
 #include "essential.h"
 #include "../globals.h"
+#include "helpful.h" // for the expect arg macros
 #include <stdio.h>
 #include <string.h>
 
-StrId SLprint(StrId str) {
+StrId SLprint(BuiltinFnArgList args) {
+    EXPECT_STRID_ARG(str, 0);
+
     fwrite(str->ptr, str->len, 1, stdout);
     return get_strid_empty();
 }
@@ -83,13 +86,25 @@ StrId SLdifference(StrId str1, StrId str2) {
     return g_interner_intern_noalloc(buf, n);
 }
 
-StrId SLpop(StrId *str) {
+StrId SLpop(BuiltinFnArgList args) {
+	EXPECT_STRID_REF_ARG(str, 0);
+
+	if ((*str)->len == 0) {
+		return get_strid_empty();
+	}
+
     const char *pop = (*str)->ptr + (*str)->len - 1;
     *str = g_interner_intern((*str)->ptr, (*str)->len - 1);
     return g_interner_intern(pop, 1);
 }
 
-StrId SLpopl(StrId *str) {
+StrId SLpopl(BuiltinFnArgList args) {
+	EXPECT_STRID_REF_ARG(str, 0);
+
+	if ((*str)->len == 0) {
+		return get_strid_empty();
+	}
+
     const char *pop = (*str)->ptr;
     *str = g_interner_intern((*str)->ptr + 1, (*str)->len - 1);
     return g_interner_intern(pop, 1);

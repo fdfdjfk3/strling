@@ -153,8 +153,7 @@ StrId machine_get_var(Machine *machine, StrId name) {
     Decl *decl = machine_get_decl_if_exists(machine, name, DECL_VAR);
     if (decl == NULL) {
         printf("Attempted to access variable with name '%.*s', but it didn't "
-               "exist "
-               "in the current scope or a parent scope.\n",
+               "exist in the current scope or a parent scope.\n",
                (int)name->len, name->ptr);
         exit(1);
     }
@@ -168,9 +167,8 @@ StrId machine_get_var(Machine *machine, StrId name) {
 StrId *machine_get_var_ref(Machine *machine, StrId name) {
     Decl *decl = machine_get_decl_if_exists(machine, name, DECL_VAR);
     if (decl == NULL) {
-        printf("Attempted to access variable with name '%.*s', but it didn't "
-               "exist "
-               "in the current scope or a parent scope.\n",
+        printf("Attempted to get reference to variable with name '%.*s', but "
+               "it didn't exist in the current scope or a parent scope.\n",
                (int)name->len, name->ptr);
         exit(1);
     }
@@ -202,12 +200,16 @@ void machine_import_builtin_lib(Machine *machine, BuiltinLib lib) {
 #define stringify(x) #x
     switch (lib) {
     case BUILTIN_LIB_ESSENTIAL: {
-		int *no_ref_1 = malloc(sizeof(int));
-		int *ref_1 = malloc(sizeof(int));
-		no_ref_1[0] = 0;
-		ref_1[0] = 1;
+        int *no_ref_1 = malloc(sizeof(int));
+        int *ref_1 = malloc(sizeof(int));
+        no_ref_1[0] = 0;
+        ref_1[0] = 1;
         machine_add_builtin_func(machine, g_interner_intern("print", 5),
                                  (BuiltinFuncDecl){.func = SLprint,
+                                                   .param_count = 1,
+                                                   .param_is_ref = no_ref_1});
+        machine_add_builtin_func(machine, g_interner_intern("println", 7),
+                                 (BuiltinFuncDecl){.func = SLprintln,
                                                    .param_count = 1,
                                                    .param_is_ref = no_ref_1});
         machine_add_builtin_func(machine, g_interner_intern("pop", 3),
@@ -218,6 +220,19 @@ void machine_import_builtin_lib(Machine *machine, BuiltinLib lib) {
                                  (BuiltinFuncDecl){.func = SLpopl,
                                                    .param_count = 1,
                                                    .param_is_ref = ref_1});
+        static int p_s_refs[] = {1, 0};
+        machine_add_builtin_func(machine, g_interner_intern("pop_substr", 10),
+                                 (BuiltinFuncDecl){.func = SLpop_substr,
+                                                   .param_count = 2,
+                                                   .param_is_ref = p_s_refs});
+        machine_add_builtin_func(machine, g_interner_intern("popl_substr", 11),
+                                 (BuiltinFuncDecl){.func = SLpopl_substr,
+                                                   .param_count = 2,
+                                                   .param_is_ref = p_s_refs});
+        machine_add_builtin_func(machine, g_interner_intern("rev", 3),
+                                 (BuiltinFuncDecl){.func = SLrev,
+                                                   .param_count = 1,
+                                                   .param_is_ref = no_ref_1});
         break;
     }
     default:
@@ -269,6 +284,34 @@ StrId eval_expr(Machine *machine, Expr *expr) {
             left = eval_expr(machine, expr->term.left);
             right = eval_expr(machine, expr->term.right);
             return SLintersect(left, right);
+
+        } else if (op == OP_DIFFERENCE) {
+            left = eval_expr(machine, expr->term.left);
+            right = eval_expr(machine, expr->term.right);
+            return SLdifference(left, right);
+
+        } else if (op == OP_BOOL_AND) {
+            left = eval_expr(machine, expr->term.left);
+            right = eval_expr(machine, expr->term.right);
+            StrId strid_true = get_strid_true();
+            if (left == strid_true && right == strid_true) {
+                return strid_true;
+            } else {
+                return get_strid_false();
+            }
+        } else if (op == OP_BOOL_OR) {
+            left = eval_expr(machine, expr->term.left);
+            right = eval_expr(machine, expr->term.right);
+            StrId strid_true = get_strid_true();
+            if (left == strid_true || right == strid_true) {
+                return strid_true;
+            } else {
+                return get_strid_false();
+            }
+        } else if (op == OP_REMOVE_OCCUR) {
+            left = eval_expr(machine, expr->term.left);
+            right = eval_expr(machine, expr->term.right);
+            return SLremove_occurrences(left, right);
         } else {
             puts("unimplemented");
             exit(1);
@@ -309,7 +352,9 @@ StrId eval_expr(Machine *machine, Expr *expr) {
                 }
 
                 if (func.builtin.param_is_ref[i]) {
-					// printf("func: %.*s, %lu: %d\n", (int)expr->call.name->len, expr->call.name->ptr, i, func.builtin.param_is_ref[i]);
+                    // printf("func: %.*s, %lu: %d\n",
+                    // (int)expr->call.name->len, expr->call.name->ptr, i,
+                    // func.builtin.param_is_ref[i]);
                     if (expr->call.args[i].type != EXPR_IDENT) {
                         printf("Only identifiers are allowed to be "
                                "used in "
@@ -339,7 +384,7 @@ StrId eval_expr(Machine *machine, Expr *expr) {
             }
 
             // Call the function with the right args.
-			// printf("%lu\n", func.builtin.param_count);
+            // printf("%lu\n", func.builtin.param_count);
             return func.builtin.func((BuiltinFnArgList){
                 .len = func.builtin.param_count, .list = args});
         }
@@ -403,6 +448,7 @@ StrId eval_expr(Machine *machine, Expr *expr) {
             if (machine->return_pending != NULL) {
                 StrId ret = machine->return_pending;
                 machine->return_pending = STRID_NULL;
+                machine->current_scope = scope_delete(machine->current_scope);
                 return ret;
             }
             if (machine->is_break || machine->is_continue) {

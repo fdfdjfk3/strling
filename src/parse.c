@@ -11,10 +11,13 @@ int is_op(TokenType type) {
     switch (type) {
     case TOK_EQUALS:
     case TOK_PLUS:
+    case TOK_MINUS:
     case TOK_DOUBLEEQ:
     case TOK_BANGEQ:
     case TOK_AMPER:
     case TOK_BANGAMPER:
+    case TOK_AND:
+    case TOK_OR:
         return 1;
     default:
         return 0;
@@ -35,6 +38,12 @@ OpType to_optype(TokenType type) {
         return OP_INTERSECTION;
     case TOK_BANGAMPER:
         return OP_DIFFERENCE;
+    case TOK_AND:
+        return OP_BOOL_AND;
+    case TOK_OR:
+        return OP_BOOL_OR;
+    case TOK_MINUS:
+        return OP_REMOVE_OCCUR;
     default:
         puts("to_optype: reached unreachable code\n");
         exit(1);
@@ -46,8 +55,6 @@ typedef struct {
     size_t data_i;
     size_t data_len;
     const char *data;
-
-    int has_errored;
 
     Node *ast;
 } ParseState;
@@ -104,10 +111,12 @@ char bump(ParseState *state) {
 TokenType tok_ident_or_keyword(ParseState *state) {
     // NOTE: make sure these are in the same order as in the enum
     static char *keywords[] = {"function", "if",  "while", "elif",
-                               "return",   "ref", "break", "continue"};
+                               "return",   "ref", "break", "continue",
+                               "and",      "or"};
     static size_t keyword_lengths[] = {
         strlen("function"), strlen("if"),  strlen("while"), strlen("elif"),
         strlen("return"),   strlen("ref"), strlen("break"), strlen("continue"),
+        strlen("and"),      strlen("or"),
     };
     static size_t num_keywords = sizeof(keyword_lengths) / sizeof(size_t);
 
@@ -312,6 +321,8 @@ TokenType tok_peek_type(ParseState *state) {
             return TOK_EQUALS;
         case '+':
             return TOK_PLUS;
+        case '-':
+            return TOK_MINUS;
         case ',':
             return TOK_COMMA;
         case '!': {
@@ -488,6 +499,7 @@ void infix_binding_power(OpType op, char *out_leftbp, char *out_rightbp) {
     char left;
     char right;
     switch (op) {
+    case OP_REMOVE_OCCUR:
     case OP_CONCAT:
         left = 9;
         right = 10;
@@ -918,10 +930,18 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes[nodes_len] = (Node){.type = NODE_BREAK};
             nodes_len += 1;
             nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
+
+        } else if (token_type == TOK_NEWLINE) {
+            tok_next(state);
+            continue;
         } else if (token_type == TOK_EOF) {
             break;
         } else {
-            tok_next(state);
+            Token t = tok_next(state);
+            error_printf(state->data, t.i, t.row, t.col,
+                         "Invalid top-level statement. Found: '%.*s'.\n",
+                         (int)t.str->len, t.str->ptr);
+            RECOVER();
         }
     }
 
@@ -954,7 +974,7 @@ Node *test() {
                             "while str != \"\" {\n"
                             "\tprint(popl(str) + \"\\n\")\n"
                             "}\n"
-							"print(popl(str))\n";
+                            "print(popl(str))\n";
     const size_t len = strlen(mock_file);
     ParseState ps = make_parser(mock_file, len);
 
@@ -967,5 +987,27 @@ Node *test() {
     puts("");
     print_interner(get_global_interner());
     puts("");
+    return ps.ast;
+}
+
+Node *parse_file(const char *filename) {
+    FILE *f = fopen(filename, "r");
+    if (f == NULL) {
+        printf("Unable to open file %s\n", filename);
+        exit(EXIT_FAILURE);
+    }
+
+    fseek(f, 0, SEEK_END);
+    const size_t len = ftell(f);
+    rewind(f);
+
+    char *data = malloc(len);
+    fread(data, 1, len, f);
+
+    ParseState ps = make_parser(data, len);
+    parse(&ps);
+    if (error_get_num_errors() > 0) {
+        exit(0);
+    }
     return ps.ast;
 }

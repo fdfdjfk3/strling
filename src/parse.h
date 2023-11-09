@@ -20,23 +20,26 @@ typedef enum {
     TOK_CCURLY = 6,
     TOK_EQUALS = 7,
     TOK_PLUS = 8,
-    TOK_DOUBLEEQ = 9,
-    TOK_BANGEQ = 10,
-    TOK_AMPER = 11,
-    TOK_BANGAMPER = 12,
-    TOK_COMMA = 13,
-    TOK_IDENT = 14,
-    TOK_FUNCTION = 15,
-    TOK_IF = 16,
-    TOK_WHILE = 17,
-    TOK_ELIF = 18,
-    TOK_RETURN = 19,
-    TOK_REF = 20,
-    TOK_BREAK = 21,
-    TOK_CONTINUE = 22,
+    TOK_MINUS = 9,
+    TOK_DOUBLEEQ = 10,
+    TOK_BANGEQ = 11,
+    TOK_AMPER = 12,
+    TOK_BANGAMPER = 13,
+    TOK_COMMA = 14,
+    TOK_IDENT = 15,
+    TOK_FUNCTION = 16,
+    TOK_IF = 17,
+    TOK_WHILE = 18,
+    TOK_ELIF = 19,
+    TOK_RETURN = 20,
+    TOK_REF = 21,
+    TOK_BREAK = 22,
+    TOK_CONTINUE = 23,
+    TOK_AND = 24,
+    TOK_OR = 25,
 
     // The most important one.
-    TOK_STR = 23,
+    TOK_STR = 26,
 } TokenType;
 
 typedef struct {
@@ -67,6 +70,7 @@ typedef enum {
     OP_DIFFERENCE,
     OP_BOOL_AND,
     OP_BOOL_OR,
+    OP_REMOVE_OCCUR,
 } OpType;
 
 typedef enum {
@@ -161,5 +165,6 @@ typedef struct Node {
 
 void print_interner(Interner *i);
 Node *test();
+Node *parse_file(const char *filename);
 
 #endif

@@ -1,4 +1,5 @@
 #include "essential.h"
+#include "../cli/args.h"
 #include "../globals.h"
 #include "helpful.h" // for the expect arg macros
 #include <stdio.h>
@@ -8,6 +9,14 @@ StrId SLprint(BuiltinFnArgList args) {
     EXPECT_STRID_ARG(str, 0);
 
     fwrite(str->ptr, str->len, 1, stdout);
+    return get_strid_empty();
+}
+
+StrId SLprintln(BuiltinFnArgList args) {
+    EXPECT_STRID_ARG(str, 0);
+
+    fwrite(str->ptr, str->len, 1, stdout);
+    printf("\n");
     return get_strid_empty();
 }
 
@@ -87,11 +96,11 @@ StrId SLdifference(StrId str1, StrId str2) {
 }
 
 StrId SLpop(BuiltinFnArgList args) {
-	EXPECT_STRID_REF_ARG(str, 0);
+    EXPECT_STRID_REF_ARG(str, 0);
 
-	if ((*str)->len == 0) {
-		return get_strid_empty();
-	}
+    if ((*str)->len == 0) {
+        return get_strid_empty();
+    }
 
     const char *pop = (*str)->ptr + (*str)->len - 1;
     *str = g_interner_intern((*str)->ptr, (*str)->len - 1);
@@ -99,13 +108,70 @@ StrId SLpop(BuiltinFnArgList args) {
 }
 
 StrId SLpopl(BuiltinFnArgList args) {
-	EXPECT_STRID_REF_ARG(str, 0);
+    EXPECT_STRID_REF_ARG(str, 0);
+
+    if ((*str)->len == 0) {
+        return get_strid_empty();
+    }
+
+    const char *pop = (*str)->ptr;
+    *str = g_interner_intern((*str)->ptr + 1, (*str)->len - 1);
+    return g_interner_intern(pop, 1);
+}
+
+StrId SLpop_substr(BuiltinFnArgList args) {
+    EXPECT_STRID_REF_ARG(str, 0);
+    EXPECT_STRID_ARG(delim, 1);
 
 	if ((*str)->len == 0) {
 		return get_strid_empty();
 	}
 
-    const char *pop = (*str)->ptr;
-    *str = g_interner_intern((*str)->ptr + 1, (*str)->len - 1);
-    return g_interner_intern(pop, 1);
+	size_t len_to_pop = 0;
+
+	for (len_to_pop = 0; len_to_pop < (*str)->len - (delim->len - 1); len_to_pop++) {
+		if (memcmp((*str)->ptr + ((*str)->len - 1 - len_to_pop), delim->ptr, delim->len) == 0) {
+			break;
+		}
+	}
+
+	size_t remaining_len = (*str)->len - (len_to_pop + delim->len);
+	StrId ret = g_interner_intern((*str)->ptr + ((*str)->len - len_to_pop), len_to_pop);
+	*str = g_interner_intern((*str)->ptr, remaining_len);
+
+	return ret;
+}
+
+StrId SLpopl_substr(BuiltinFnArgList args) {
+    EXPECT_STRID_REF_ARG(str, 0);
+    EXPECT_STRID_ARG(delim, 1);
+
+	// TODO: handle empty string cases
+
+    size_t len_to_pop = 0;
+
+    for (len_to_pop = 0; len_to_pop < (*str)->len - (delim->len - 1);
+         len_to_pop++) {
+        if (memcmp((*str)->ptr + len_to_pop, delim->ptr, delim->len) == 0) {
+            break;
+        }
+    }
+
+    size_t remaining_len = (*str)->len - (len_to_pop + delim->len);
+    StrId ret = g_interner_intern((*str)->ptr, len_to_pop);
+    *str =
+        g_interner_intern((*str)->ptr + len_to_pop + delim->len, remaining_len);
+
+    return ret;
+}
+
+StrId SLrev(BuiltinFnArgList args) {
+    EXPECT_STRID_ARG(str, 0);
+
+    char *new = malloc(str->len);
+    for (size_t i = 0; i < str->len; i++) {
+        new[str->len - (i + 1)] = str->ptr[i];
+    }
+
+    return g_interner_intern(new, str->len);
 }

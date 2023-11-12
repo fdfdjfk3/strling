@@ -1,7 +1,9 @@
 #ifndef SL_HELPFUL_H
 #define SL_HELPFUL_H
 
-#define EXPECT_STRID_ARG(varname, index)                                       \
+#include <stdio.h>
+
+#define $EXPECT_STRID_ARG(varname, index)                                       \
     StrId varname;                                                             \
     if (index >= args.len) {                                                   \
         printf("Too few arguments passed into %s, argument " #index            \
@@ -18,7 +20,7 @@
         varname = args.list[index].value;                                      \
     }
 
-#define EXPECT_STRID_REF_ARG(varname, index)                                   \
+#define $EXPECT_STRID_REF_ARG(varname, index)                                   \
     StrId *varname;                                                            \
     if (index >= args.len) {                                                   \
         printf("Too few arguments passed into %s, argument " #index            \
@@ -34,5 +36,11 @@
     } else {                                                                   \
         varname = args.list[index].ref;                                        \
     }
+
+inline void clear_stdin(void) {
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF) {
+    }
+}
 
 #endif

@@ -5,8 +5,8 @@ typedef struct {
     Scope global_scope;
     Scope *current_scope;
     StrId return_pending;
-    int is_break;
-    int is_continue;
+    bool is_break;
+    bool is_continue;
 } Machine;
 
 typedef enum {

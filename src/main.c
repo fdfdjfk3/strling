@@ -3,6 +3,7 @@
 #include "interpret.h"
 #include "parse.h"
 #include <stdio.h>
+#include <time.h>
 
 int main(int argc, char *argv[]) {
     g_interner_init();
@@ -15,7 +16,7 @@ int main(int argc, char *argv[]) {
 
 	Node *ast = parse_file(initial_file_name);
 	interpret(ast);
-
-    // Node *ast = test();
-    // interpret(ast);
 }
+
+
+

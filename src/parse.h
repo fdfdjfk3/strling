@@ -37,9 +37,10 @@ typedef enum {
     TOK_CONTINUE = 23,
     TOK_AND = 24,
     TOK_OR = 25,
+	TOK_IMPORT = 26,
 
     // The most important one.
-    TOK_STR = 26,
+    TOK_STR = 27,
 } TokenType;
 
 typedef struct {
@@ -122,7 +123,7 @@ typedef struct Node {
         struct {
             StrId name;
             StrId *param_names;
-            int *param_is_ref;
+            bool *param_is_ref;
             // max 255 params
             char param_count;
 

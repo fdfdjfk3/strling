@@ -32,7 +32,15 @@ concatenation (`+`)
 x = "hello " + "world"
 ```
 
-equals/not equals (`==`/`!=`)
+remove occurrences (`-`)
+
+```
+? removes occurrences of a substring from the initial string
+x = "blblblblblblbl" - "bl"
+? x is ""
+```
+
+equals/does not equal (`==`/`!=`)
 
 ```
 ? booleans in Strling are represented with their string variants, to clear any confusion there
@@ -44,19 +52,22 @@ y = "foo" != "bar"
 intersection (`&`)
 
 ```
-? it's like an intersection from set theory (except not yet because i've been to lazy to implement it correctly
-? it currently also takes index into account
+? set intersection
+? it currently also takes index into account (but i'm planning on making it not be this way)
 
-<insert code example here>
+a = "hello" & "hell"
+? a is "hell"
 ```
 
 difference (`!&`)
 
 ```
-insert stuff here
-```
+? set difference
+? it currently also takes index into account (but i'm planning on making it not be this way)
 
-todo: other Operators
+a = "hello" & "hell"
+? a is "o"
+```
 
 ### If / Elif
 
@@ -95,6 +106,8 @@ while "true" {
     println("infinite loop")
 }
 ```
+
+There are also `continue` and `break` which go to the next loop iteration and break from the loop respectively.
 
 ### Function declaration
 

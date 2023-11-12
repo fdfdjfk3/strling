@@ -5,19 +5,33 @@
 #include <stdio.h>
 #include <string.h>
 
+#define MAX_LINE_LEN 2048
+
 StrId SLprint(BuiltinFnArgList args) {
-    EXPECT_STRID_ARG(str, 0);
+    $EXPECT_STRID_ARG(str, 0);
 
     fwrite(str->ptr, str->len, 1, stdout);
     return get_strid_empty();
 }
 
 StrId SLprintln(BuiltinFnArgList args) {
-    EXPECT_STRID_ARG(str, 0);
+    $EXPECT_STRID_ARG(str, 0);
 
     fwrite(str->ptr, str->len, 1, stdout);
     printf("\n");
     return get_strid_empty();
+}
+
+StrId SLgetchar(BuiltinFnArgList args) {
+    char buf[1];
+    buf[0] = (char)getchar();
+    return g_interner_intern(buf, 1);
+}
+
+StrId SLgetline(BuiltinFnArgList args) {
+    char buf[MAX_LINE_LEN];
+    fgets(buf, MAX_LINE_LEN, stdin);
+    return g_interner_intern(buf, strlen(buf) - 1);
 }
 
 // TODO: make concatting a lazy operation to reduce allocations, use like
@@ -96,7 +110,7 @@ StrId SLdifference(StrId str1, StrId str2) {
 }
 
 StrId SLpop(BuiltinFnArgList args) {
-    EXPECT_STRID_REF_ARG(str, 0);
+    $EXPECT_STRID_REF_ARG(str, 0);
 
     if ((*str)->len == 0) {
         return get_strid_empty();
@@ -108,7 +122,7 @@ StrId SLpop(BuiltinFnArgList args) {
 }
 
 StrId SLpopl(BuiltinFnArgList args) {
-    EXPECT_STRID_REF_ARG(str, 0);
+    $EXPECT_STRID_REF_ARG(str, 0);
 
     if ((*str)->len == 0) {
         return get_strid_empty();
@@ -120,33 +134,38 @@ StrId SLpopl(BuiltinFnArgList args) {
 }
 
 StrId SLpop_substr(BuiltinFnArgList args) {
-    EXPECT_STRID_REF_ARG(str, 0);
-    EXPECT_STRID_ARG(delim, 1);
+    $EXPECT_STRID_REF_ARG(str, 0);
+    $EXPECT_STRID_ARG(delim, 1);
 
-	if ((*str)->len == 0) {
-		return get_strid_empty();
-	}
+    if ((*str)->len == 0 || delim->len == 0) {
+        return get_strid_empty();
+    }
 
-	size_t len_to_pop = 0;
+    size_t len_to_pop = 0;
 
-	for (len_to_pop = 0; len_to_pop < (*str)->len - (delim->len - 1); len_to_pop++) {
-		if (memcmp((*str)->ptr + ((*str)->len - 1 - len_to_pop), delim->ptr, delim->len) == 0) {
-			break;
-		}
-	}
+    for (len_to_pop = 0; len_to_pop < (*str)->len - (delim->len - 1);
+         len_to_pop++) {
+        if (memcmp((*str)->ptr + ((*str)->len - 1 - len_to_pop), delim->ptr,
+                   delim->len) == 0) {
+            break;
+        }
+    }
 
-	size_t remaining_len = (*str)->len - (len_to_pop + delim->len);
-	StrId ret = g_interner_intern((*str)->ptr + ((*str)->len - len_to_pop), len_to_pop);
-	*str = g_interner_intern((*str)->ptr, remaining_len);
+    size_t remaining_len = (*str)->len - (len_to_pop + delim->len);
+    StrId ret =
+        g_interner_intern((*str)->ptr + ((*str)->len - len_to_pop), len_to_pop);
+    *str = g_interner_intern((*str)->ptr, remaining_len);
 
-	return ret;
+    return ret;
 }
 
 StrId SLpopl_substr(BuiltinFnArgList args) {
-    EXPECT_STRID_REF_ARG(str, 0);
-    EXPECT_STRID_ARG(delim, 1);
+    $EXPECT_STRID_REF_ARG(str, 0);
+    $EXPECT_STRID_ARG(delim, 1);
 
-	// TODO: handle empty string cases
+    if ((*str)->len == 0 || delim->len == 0) {
+        return get_strid_empty();
+    }
 
     size_t len_to_pop = 0;
 
@@ -166,7 +185,7 @@ StrId SLpopl_substr(BuiltinFnArgList args) {
 }
 
 StrId SLrev(BuiltinFnArgList args) {
-    EXPECT_STRID_ARG(str, 0);
+    $EXPECT_STRID_ARG(str, 0);
 
     char *new = malloc(str->len);
     for (size_t i = 0; i < str->len; i++) {
@@ -174,4 +193,39 @@ StrId SLrev(BuiltinFnArgList args) {
     }
 
     return g_interner_intern(new, str->len);
+}
+
+StrId SLreplace(BuiltinFnArgList args) {
+    $EXPECT_STRID_ARG(str, 0);
+    $EXPECT_STRID_ARG(replace, 1);
+    $EXPECT_STRID_ARG(with, 2);
+
+    if (replace == with || replace->len == 0) {
+        return str;
+    }
+
+    // Maximum possible size that the output string could be.
+    char *buffer = malloc(str->len * with->len);
+    size_t len = 0;
+
+    for (size_t i = 0; i < str->len; i++) {
+        if (i <= (str->len - replace->len) &&
+            memcmp(str->ptr + i, replace->ptr, replace->len) == 0) {
+
+            memcpy(buffer + len, with->ptr, with->len);
+            i += replace->len - 1;
+            len += with->len;
+        } else {
+            buffer[len] = str->ptr[i];
+            len += 1;
+        }
+    }
+
+    buffer = realloc(buffer, len);
+	if (buffer == NULL) {
+		puts("Allocation error in SLreplace");
+		exit(EXIT_FAILURE);
+	}
+
+	return g_interner_intern_noalloc(buffer, len);
 }

@@ -7,7 +7,7 @@
 #include "globals.h"
 #include "parse.h"
 
-int is_op(TokenType type) {
+bool is_op(TokenType type) {
     switch (type) {
     case TOK_EQUALS:
     case TOK_PLUS:
@@ -18,9 +18,9 @@ int is_op(TokenType type) {
     case TOK_BANGAMPER:
     case TOK_AND:
     case TOK_OR:
-        return 1;
+        return true;
     default:
-        return 0;
+        return false;
     }
 }
 
@@ -46,7 +46,7 @@ OpType to_optype(TokenType type) {
         return OP_REMOVE_OCCUR;
     default:
         puts("to_optype: reached unreachable code\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -74,14 +74,14 @@ ParseState make_parser(const char *data, size_t len) {
 // Toker start
 //---------------------
 
-int isidentch(char ch);
+bool isidentch(char ch);
 char bump(ParseState *state);
 TokenType tok_ident_or_keyword(ParseState *state);
 StrId tok_str(ParseState *state);
 Token tok_next(ParseState *state);
 TokenType tok_peek_type(ParseState *state);
 
-int isidentch(char ch) { return ch == '_' || isalpha(ch) || isdigit(ch); }
+bool isidentch(char ch) { return ch == '_' || isalpha(ch) || isdigit(ch); }
 char peek(ParseState *state) {
     if (state->data_i >= state->data_len) {
         return EOF;
@@ -110,13 +110,13 @@ char bump(ParseState *state) {
 
 TokenType tok_ident_or_keyword(ParseState *state) {
     // NOTE: make sure these are in the same order as in the enum
-    static char *keywords[] = {"function", "if",  "while", "elif",
-                               "return",   "ref", "break", "continue",
-                               "and",      "or"};
+    static char *keywords[] = {"fun",    "if",  "while", "elif",
+                               "return", "ref", "break", "continue",
+                               "and",    "or",  "import"};
     static size_t keyword_lengths[] = {
-        strlen("function"), strlen("if"),  strlen("while"), strlen("elif"),
-        strlen("return"),   strlen("ref"), strlen("break"), strlen("continue"),
-        strlen("and"),      strlen("or"),
+        strlen("fun"),    strlen("if"),  strlen("while"),  strlen("elif"),
+        strlen("return"), strlen("ref"), strlen("break"),  strlen("continue"),
+        strlen("and"),    strlen("or"),  strlen("import"),
     };
     static size_t num_keywords = sizeof(keyword_lengths) / sizeof(size_t);
 
@@ -144,7 +144,7 @@ StrId tok_str(ParseState *state) {
     char *buf = malloc(capacity);
     if (buf == NULL) {
         puts("tok_str: Allocation error");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     size_t idx = 0;
@@ -349,7 +349,6 @@ TokenType tok_peek_type(ParseState *state) {
 //
 void print_expr(Expr *expr);
 void print_ast(Node *node);
-int expect(ParseState *state, TokenType type);
 void infix_binding_power(OpType op, char *out_leftbp, char *out_rightbp);
 Expr *parse_arg_list(ParseState *state, size_t *out_len);
 Expr *parse_expr_single(ParseState *state);
@@ -363,7 +362,7 @@ void parse(ParseState *state);
 
 /// Expect the next token to be of a specific type. If it's not, print an error
 /// and return NULL.
-#define EXPECT(toktype)                                                        \
+#define $EXPECT(toktype)                                                       \
     {                                                                          \
         Token t = tok_next(state);                                             \
         if (t.type != toktype) {                                               \
@@ -491,7 +490,7 @@ void print_ast(Node *node) {
         break;
     default:
         puts("nuh uh");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -525,7 +524,7 @@ void infix_binding_power(OpType op, char *out_leftbp, char *out_rightbp) {
         break;
     default:
         puts("TODO\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     *out_leftbp = left;
     *out_rightbp = right;
@@ -535,7 +534,7 @@ Node *alloc_node(NodeType type) {
     Node *node = malloc(sizeof(Node));
     if (node == NULL) {
         printf("Error allocating node of type %d\n", type);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     node->type = type;
     return node;
@@ -545,21 +544,28 @@ Expr *alloc_expr(ExprType type) {
     Expr *expr = malloc(sizeof(Expr));
     if (expr == NULL) {
         printf("Error allocating node of type %d\n", type);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     expr->type = type;
     return expr;
 }
 
 Expr *parse_arg_list(ParseState *state, size_t *out_len) {
-    EXPECT(TOK_OPAREN);
+    $EXPECT(TOK_OPAREN);
 
-    Expr *args = NULL;
+    Expr args[255];
     size_t len = 0;
 
     TokenType peek;
     while ((peek = tok_peek_type(state)) != TOK_CPAREN) {
-        if (peek != TOK_IDENT && peek != TOK_STR) {
+        if (len == 255) {
+            Token t = tok_next(state);
+            error_printf(state->data, t.i - 1, t.row, t.col,
+                         "Too many arguments specified in argument list. "
+                         "'%.*s' was the final straw.\n",
+                         (int)t.str->len, t.str->ptr);
+            return NULL;
+        } else if (peek != TOK_IDENT && peek != TOK_STR) {
             Token t = tok_next(state);
             error_printf(state->data, t.i - 1, t.row, t.col,
                          "Invalid token '%.*s' found in function call.\n",
@@ -571,15 +577,8 @@ Expr *parse_arg_list(ParseState *state, size_t *out_len) {
             return NULL;
         }
 
-        if (args == NULL) {
-            args = malloc(sizeof(Expr));
-            len = 1;
-        } else {
-            len += 1;
-            args = realloc(args, len * sizeof(Expr));
-        }
-        // len can't be < 1.
-        args[len - 1] = *expr;
+        args[len] = *expr;
+        len += 1;
         free(expr);
 
         if (tok_peek_type(state) == TOK_COMMA) {
@@ -593,10 +592,13 @@ Expr *parse_arg_list(ParseState *state, size_t *out_len) {
     }
 
     // printf("going past paren\n");
-    EXPECT(TOK_CPAREN);
+    $EXPECT(TOK_CPAREN);
 
     *out_len = len;
-    return args;
+
+    Expr *ret = malloc(sizeof(Expr) * len);
+    memcpy(ret, args, sizeof(Expr) * len);
+    return ret;
 }
 
 Expr *parse_expr_single(ParseState *state) {
@@ -614,9 +616,6 @@ Expr *parse_expr_single(ParseState *state) {
             // printf("%d\n", type);
             size_t len;
             Expr *args = parse_arg_list(state, &len);
-            if (args == NULL) {
-                return NULL;
-            }
 
             Expr *expr = alloc_expr(EXPR_CALL);
             expr->call.args = args;
@@ -644,7 +643,7 @@ Expr *parse_expr_bp(ParseState *state, int min_bp) {
     Expr *lhs;
     TokenType temp = tok_peek_type(state);
     // printf("%d\n", temp);
-    if (is_op(temp) == 1) {
+    if (is_op(temp)) {
         tok_next(state);
         OpType op = to_optype(temp);
         char ignore, rightbp;
@@ -657,7 +656,7 @@ Expr *parse_expr_bp(ParseState *state, int min_bp) {
     } else if (temp == TOK_OPAREN) {
         tok_next(state);
         lhs = parse_expr_bp(state, 0);
-        EXPECT(TOK_CPAREN);
+        $EXPECT(TOK_CPAREN);
     } else {
         lhs = parse_expr_single(state);
         if (lhs == NULL) {
@@ -668,7 +667,7 @@ Expr *parse_expr_bp(ParseState *state, int min_bp) {
     while (1) {
         TokenType next_type = tok_peek_type(state);
         OpType op;
-        if (is_op(next_type) == 1) {
+        if (is_op(next_type)) {
             op = to_optype(next_type);
         } else if (next_type == TOK_EOF || next_type == TOK_COMMA ||
                    next_type == TOK_CPAREN || next_type == TOK_NEWLINE ||
@@ -681,8 +680,6 @@ Expr *parse_expr_bp(ParseState *state, int min_bp) {
                 "Expected expression continuation, but found '%.*s'.\n",
                 (int)next.str->len, next.str->ptr);
             return NULL;
-            // puts("error, invalid operator in parse_expr_bp");
-            // exit(1);
         }
 
         char leftbp, rightbp;
@@ -711,14 +708,14 @@ Expr *parse_expr(ParseState *state) {
 }
 
 Node *parse_if_statement(ParseState *state) {
-    EXPECT(TOK_IF);
+    $EXPECT(TOK_IF);
 
     Expr *expr = parse_expr(state);
-    EXPECT(TOK_OCURLY);
+    $EXPECT(TOK_OCURLY);
 
     size_t len;
     Node *body = parse_body(state, &len, PARSE_BLOCK);
-    EXPECT(TOK_CCURLY);
+    $EXPECT(TOK_CCURLY);
 
     Node *statement = alloc_node(NODE_IF);
     statement->if_statement.expr = expr;
@@ -733,7 +730,7 @@ Node *parse_if_statement(ParseState *state) {
     while ((next = tok_peek_type(state)) == TOK_ELIF) {
         tok_next(state);
         Expr *expr = parse_expr(state);
-        EXPECT(TOK_OCURLY);
+        $EXPECT(TOK_OCURLY);
 
         size_t len;
         Node *body = parse_body(state, &len, PARSE_BLOCK);
@@ -745,7 +742,7 @@ Node *parse_if_statement(ParseState *state) {
         elifs[num_elifs - 1].elif_statement.body = body;
         elifs[num_elifs - 1].elif_statement.body_node_count = len;
 
-        EXPECT(TOK_CCURLY);
+        $EXPECT(TOK_CCURLY);
     }
     statement->if_statement.elifs = elifs;
     statement->if_statement.num_elifs = num_elifs;
@@ -753,14 +750,14 @@ Node *parse_if_statement(ParseState *state) {
 }
 
 Node *parse_while_statement(ParseState *state) {
-    EXPECT(TOK_WHILE);
+    $EXPECT(TOK_WHILE);
 
     Expr *expr = parse_expr(state);
-    EXPECT(TOK_OCURLY);
+    $EXPECT(TOK_OCURLY);
 
     size_t len;
     Node *body = parse_body(state, &len, PARSE_BLOCK);
-    EXPECT(TOK_CCURLY);
+    $EXPECT(TOK_CCURLY);
 
     Node *statement = alloc_node(NODE_WHILE);
     statement->while_statement.expr = expr;
@@ -770,7 +767,7 @@ Node *parse_while_statement(ParseState *state) {
 }
 
 Node *parse_func_decl(ParseState *state) {
-    EXPECT(TOK_FUNCTION);
+    $EXPECT(TOK_FUNCTION);
 
     Token name = tok_next(state);
     if (name.type != TOK_IDENT) {
@@ -782,27 +779,34 @@ Node *parse_func_decl(ParseState *state) {
     }
 
     // parse parameter list
-    EXPECT(TOK_OPAREN);
+    $EXPECT(TOK_OPAREN);
 
-    StrId *params = NULL;
-    int *param_is_ref = NULL;
+    StrId params[255];
+    bool param_is_ref[255];
     size_t num_params = 0;
 
     Token temp;
     while ((temp = tok_next(state)).type != TOK_CPAREN) {
-        int ref = 0;
+        if (num_params == 255) {
+            Token t = tok_next(state);
+            error_printf(
+                state->data, t.i - 1, t.row, t.col,
+                "Too many arguments specified in function declaration list. "
+                "'%.*s' was the final straw.\n",
+                (int)t.str->len, t.str->ptr);
+            return NULL;
+        }
+        bool ref = false;
         // printf("%d\n", temp.type);
         if (temp.type == TOK_REF) {
             temp = tok_next(state);
-            ref = 1;
+            ref = true;
         }
 
         if (temp.type == TOK_IDENT) {
+            params[num_params] = temp.str;
+            param_is_ref[num_params] = ref;
             num_params += 1;
-            params = realloc(params, sizeof(StrId) * num_params);
-            param_is_ref = realloc(param_is_ref, sizeof(int) * num_params);
-            params[num_params - 1] = temp.str;
-            param_is_ref[num_params - 1] = ref;
 
             Token next = tok_next(state);
             if (next.type == TOK_COMMA) {
@@ -819,22 +823,28 @@ Node *parse_func_decl(ParseState *state) {
             }
         }
         puts("error, invalid token found in parameter list fkdjf");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
-    EXPECT(TOK_OCURLY);
+    $EXPECT(TOK_OCURLY);
 
     size_t len;
     Node *body = parse_body(state, &len, PARSE_FUNC);
 
-    EXPECT(TOK_CCURLY);
+    $EXPECT(TOK_CCURLY);
+
+	StrId *alloced_params = malloc(sizeof(StrId) * num_params);
+	memcpy(alloced_params, params, sizeof(StrId) * num_params);
+	bool *alloced_refs = malloc(sizeof(bool) * num_params);
+	memcpy(alloced_refs, param_is_ref, sizeof(bool) * num_params);
+		
 
     Node *decl = alloc_node(NODE_FUNCDECL);
     decl->func_decl.body_node_count = len;
     decl->func_decl.body = body;
     decl->func_decl.name = name.str;
-    decl->func_decl.param_names = params;
-    decl->func_decl.param_is_ref = param_is_ref;
+    decl->func_decl.param_names = alloced_params;
+    decl->func_decl.param_is_ref = alloced_refs;
     decl->func_decl.param_count = num_params;
 
     return decl;
@@ -842,7 +852,7 @@ Node *parse_func_decl(ParseState *state) {
 
 /// For use in parse_body(). Push the parser to the next spot that it can
 /// reasonably start parsing again without error spam.
-#define RECOVER()                                                              \
+#define $RECOVER()                                                             \
     {                                                                          \
         Token t;                                                               \
         while ((t = tok_next(state)).type != TOK_NEWLINE &&                    \
@@ -852,7 +862,8 @@ Node *parse_func_decl(ParseState *state) {
     }
 
 Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
-    Node *nodes = malloc(sizeof(Node));
+    size_t nodes_capacity = 100;
+    Node *nodes = malloc(sizeof(Node) * nodes_capacity);
     size_t nodes_len = 0;
 
     TokenType sentinel = (context == PARSE_GLOBAL) ? TOK_EOF : TOK_CCURLY;
@@ -861,10 +872,19 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
     // TODO: clean up this loop, it was very hastily put together and it's
     // so hard to read lol.
     while ((token_type = tok_peek_type(state)) != sentinel) {
+        if (nodes_len == nodes_capacity) {
+            nodes_capacity += 100;
+            nodes = realloc(nodes, sizeof(Node) * nodes_capacity);
+            if (nodes == NULL) {
+                puts("Allocation error in parse_body");
+                exit(EXIT_FAILURE);
+            }
+        }
+
         if (token_type == TOK_IDENT) {
             Expr *expr = parse_expr(state);
             if (expr == NULL) {
-                RECOVER();
+                $RECOVER();
             }
 
             Node *node = alloc_node(NODE_TOP_EXPR);
@@ -873,37 +893,33 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
-            nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_IF) {
             Node *node = parse_if_statement(state);
             if (node == NULL) {
-                RECOVER();
+                $RECOVER();
             }
 
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
-            nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_WHILE) {
             Node *node = parse_while_statement(state);
             if (node == NULL) {
-                RECOVER();
+                $RECOVER();
             }
 
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
-            nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_FUNCTION) {
             Node *node = parse_func_decl(state);
             if (node == NULL) {
-                RECOVER();
+                $RECOVER();
             }
 
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
-            nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_RETURN) {
             Node return_statement = (Node){.type = NODE_RETURN};
             tok_next(state);
@@ -911,7 +927,7 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             if (tok_peek_type(state) != TOK_NEWLINE) {
                 expr = parse_expr(state);
                 if (expr == NULL) {
-                    RECOVER();
+                    $RECOVER();
                 }
             } else {
                 expr = NULL;
@@ -919,17 +935,14 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             return_statement.return_statement = expr;
             nodes[nodes_len] = return_statement;
             nodes_len += 1;
-            nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_CONTINUE) {
             tok_next(state);
             nodes[nodes_len] = (Node){.type = NODE_CONTINUE};
             nodes_len += 1;
-            nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
         } else if (token_type == TOK_BREAK) {
             tok_next(state);
             nodes[nodes_len] = (Node){.type = NODE_BREAK};
             nodes_len += 1;
-            nodes = realloc(nodes, sizeof(Node) * (nodes_len + 1));
 
         } else if (token_type == TOK_NEWLINE) {
             tok_next(state);
@@ -941,7 +954,7 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             error_printf(state->data, t.i, t.row, t.col,
                          "Invalid top-level statement. Found: '%.*s'.\n",
                          (int)t.str->len, t.str->ptr);
-            RECOVER();
+            $RECOVER();
         }
     }
 

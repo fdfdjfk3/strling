@@ -4,20 +4,6 @@
 #include "slstd/sl_stdlib.h"
 #include <stdio.h>
 
-int machine_is_in_func(Machine *machine) {
-    if (machine->current_scope == NULL)
-        return 0;
-
-    Scope *cur = machine->current_scope;
-    while (cur != NULL) {
-        if (cur->logical_parent == 0) {
-            return 1;
-        }
-        cur = cur->logical_parent;
-    }
-    return 0;
-}
-
 Decl *machine_get_decl_if_exists(Machine *machine, StrId ident, DeclType type) {
     Scope *s = machine->current_scope;
 
@@ -47,15 +33,15 @@ Decl *machine_get_decl_if_exists(Machine *machine, StrId ident, DeclType type) {
 }
 
 void machine_set_var_ref(Machine *machine, StrId name, StrId *ref,
-                         int overwrite_ok) {
+                         bool overwrite_ok) {
     Decl *existing_decl = machine_get_decl_if_exists(machine, name, DECL_VAR);
     if (existing_decl != NULL) {
-        if (overwrite_ok == 0) {
+        if (overwrite_ok == false) {
             printf("Could not shadow or modify variable name '%.*s'\n",
                    (int)name->len, name->ptr);
-            exit(1);
+            exit(EXIT_FAILURE);
         }
-        existing_decl->var.is_ref = 1;
+        existing_decl->var.is_ref = true;
         existing_decl->var.ref = ref;
         return;
     }
@@ -67,20 +53,20 @@ void machine_set_var_ref(Machine *machine, StrId name, StrId *ref,
     cur->declarations[cur->num_declarations] =
         (Decl){.type = DECL_VAR,
                .ident = name,
-               .var = (VarDecl){.is_ref = 1, .ref = ref}};
+               .var = (VarDecl){.is_ref = true, .ref = ref}};
     cur->num_declarations += 1;
 }
 
 void machine_set_var(Machine *machine, StrId name, StrId value,
-                     int overwrite_ok) {
+                     bool overwrite_ok) {
     Decl *existing_decl = machine_get_decl_if_exists(machine, name, DECL_VAR);
     if (existing_decl != NULL) {
-        if (overwrite_ok == 0) {
+        if (overwrite_ok == false) {
             printf("Could not shadow or modify variable name '%.*s'\n",
                    (int)name->len, name->ptr);
-            exit(1);
+            exit(EXIT_FAILURE);
         }
-        if (existing_decl->var.is_ref == 1) {
+        if (existing_decl->var.is_ref == true) {
             *(existing_decl->var.ref) = value;
         } else {
             existing_decl->var.value = value;
@@ -95,7 +81,7 @@ void machine_set_var(Machine *machine, StrId name, StrId value,
     cur->declarations[cur->num_declarations] =
         (Decl){.type = DECL_VAR,
                .ident = name,
-               .var = (VarDecl){.is_ref = 0, .value = value}};
+               .var = (VarDecl){.is_ref = false, .value = value}};
     cur->num_declarations += 1;
 }
 
@@ -107,7 +93,7 @@ void machine_add_func(Machine *machine, StrId name, Node *func) {
                "language feature i want to have in this language. problematic "
                "function name: '%.*s'\n",
                (int)name->len, name->ptr);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     Scope *cur = (machine->current_scope == NULL) ? &machine->global_scope
@@ -117,7 +103,7 @@ void machine_add_func(Machine *machine, StrId name, Node *func) {
     cur->declarations[cur->num_declarations] = (Decl){
         .type = DECL_FUNC,
         .ident = name,
-        .func = (FuncDecl){.is_native = 1,
+        .func = (FuncDecl){.is_native = true,
                            .native = (NativeFuncDecl){
                                .body = func->func_decl.body,
                                .body_len = func->func_decl.body_node_count,
@@ -135,7 +121,7 @@ void machine_add_builtin_func(Machine *machine, StrId name,
     if (existing_decl != NULL) {
         printf("function shadowing is disallowed for now, i don't know if "
                "that's a language feature i want to have in this language.");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     Scope *cur = (machine->current_scope == NULL) ? &machine->global_scope
@@ -145,7 +131,7 @@ void machine_add_builtin_func(Machine *machine, StrId name,
     cur->declarations[cur->num_declarations] =
         (Decl){.type = DECL_BUILTIN_FUNC,
                .ident = name,
-               .func = (FuncDecl){.is_native = 0, .builtin = decl}};
+               .func = (FuncDecl){.is_native = false, .builtin = decl}};
     cur->num_declarations += 1;
 }
 
@@ -155,7 +141,7 @@ StrId machine_get_var(Machine *machine, StrId name) {
         printf("Attempted to access variable with name '%.*s', but it didn't "
                "exist in the current scope or a parent scope.\n",
                (int)name->len, name->ptr);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     if (decl->var.is_ref) {
         return *decl->var.ref;
@@ -170,7 +156,7 @@ StrId *machine_get_var_ref(Machine *machine, StrId name) {
         printf("Attempted to get reference to variable with name '%.*s', but "
                "it didn't exist in the current scope or a parent scope.\n",
                (int)name->len, name->ptr);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     if (decl->var.is_ref) {
         return decl->var.ref;
@@ -191,7 +177,7 @@ FuncDecl machine_get_func(Machine *machine, StrId name) {
         printf("Tried to access function '%.*s', but it didn't exist in the "
                "current scope or a parent scope.\n",
                (int)name->len, name->ptr);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     return decl->func;
 }
@@ -200,18 +186,26 @@ void machine_import_builtin_lib(Machine *machine, BuiltinLib lib) {
 #define stringify(x) #x
     switch (lib) {
     case BUILTIN_LIB_ESSENTIAL: {
-        int *no_ref_1 = malloc(sizeof(int));
-        int *ref_1 = malloc(sizeof(int));
-        no_ref_1[0] = 0;
-        ref_1[0] = 1;
+        static bool ref_0[] = {false};
+        static bool ref_1[] = {true};
+        static bool ref_1_0[] = {true, false};
+        static bool ref_0_0_0[] = {false, false, false};
         machine_add_builtin_func(machine, g_interner_intern("print", 5),
                                  (BuiltinFuncDecl){.func = SLprint,
                                                    .param_count = 1,
-                                                   .param_is_ref = no_ref_1});
+                                                   .param_is_ref = ref_0});
         machine_add_builtin_func(machine, g_interner_intern("println", 7),
                                  (BuiltinFuncDecl){.func = SLprintln,
                                                    .param_count = 1,
-                                                   .param_is_ref = no_ref_1});
+                                                   .param_is_ref = ref_0});
+        machine_add_builtin_func(machine, g_interner_intern("getchar", 7),
+                                 (BuiltinFuncDecl){.func = SLgetchar,
+                                                   .param_count = 0,
+                                                   .param_is_ref = NULL});
+        machine_add_builtin_func(machine, g_interner_intern("getline", 7),
+                                 (BuiltinFuncDecl){.func = SLgetline,
+                                                   .param_count = 0,
+                                                   .param_is_ref = NULL});
         machine_add_builtin_func(machine, g_interner_intern("pop", 3),
                                  (BuiltinFuncDecl){.func = SLpop,
                                                    .param_count = 1,
@@ -220,24 +214,27 @@ void machine_import_builtin_lib(Machine *machine, BuiltinLib lib) {
                                  (BuiltinFuncDecl){.func = SLpopl,
                                                    .param_count = 1,
                                                    .param_is_ref = ref_1});
-        static int p_s_refs[] = {1, 0};
         machine_add_builtin_func(machine, g_interner_intern("pop_substr", 10),
                                  (BuiltinFuncDecl){.func = SLpop_substr,
                                                    .param_count = 2,
-                                                   .param_is_ref = p_s_refs});
+                                                   .param_is_ref = ref_1_0});
         machine_add_builtin_func(machine, g_interner_intern("popl_substr", 11),
                                  (BuiltinFuncDecl){.func = SLpopl_substr,
                                                    .param_count = 2,
-                                                   .param_is_ref = p_s_refs});
+                                                   .param_is_ref = ref_1_0});
         machine_add_builtin_func(machine, g_interner_intern("rev", 3),
                                  (BuiltinFuncDecl){.func = SLrev,
                                                    .param_count = 1,
-                                                   .param_is_ref = no_ref_1});
+                                                   .param_is_ref = ref_0});
+        machine_add_builtin_func(machine, g_interner_intern("replace", 7),
+                                 (BuiltinFuncDecl){.func = SLreplace,
+                                                   .param_count = 3,
+                                                   .param_is_ref = ref_0_0_0});
         break;
     }
     default:
         puts("Library " stringify(lib) " unimplemented");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 #undef stringify
 }
@@ -258,12 +255,12 @@ StrId eval_expr(Machine *machine, Expr *expr) {
         if (op == OP_SET) {
             if (expr->term.left->type != EXPR_IDENT) {
                 puts("Can't assign to non-identifier");
-                exit(1);
+                exit(EXIT_FAILURE);
             }
             left = expr->term.left->ident;
             right = eval_expr(machine, expr->term.right);
             machine_set_var(machine, left, right, 1);
-            return g_interner_intern("", 0);
+            return get_strid_empty();
 
         } else if (op == OP_CONCAT) {
             left = eval_expr(machine, expr->term.left);
@@ -314,7 +311,7 @@ StrId eval_expr(Machine *machine, Expr *expr) {
             return SLremove_occurrences(left, right);
         } else {
             puts("unimplemented");
-            exit(1);
+            exit(EXIT_FAILURE);
         }
         break;
     }
@@ -323,7 +320,7 @@ StrId eval_expr(Machine *machine, Expr *expr) {
         FuncDecl func = machine_get_func(machine, name);
 
         // native functions have to be called differently.
-        if (func.is_native == 0) {
+        if (func.is_native == false) {
             BuiltinFnArg args[255];
             if (expr->call.num_args > func.builtin.param_count) {
                 printf("Called function '%.*s' with too many args. Called "
@@ -346,8 +343,8 @@ StrId eval_expr(Machine *machine, Expr *expr) {
                                (int)i);
                         exit(EXIT_FAILURE);
                     }
-                    args[i] =
-                        (BuiltinFnArg){.is_ref = 0, .value = get_strid_empty()};
+                    args[i] = (BuiltinFnArg){.is_ref = false,
+                                             .value = get_strid_empty()};
                     continue;
                 }
 
@@ -371,14 +368,14 @@ StrId eval_expr(Machine *machine, Expr *expr) {
                         exit(EXIT_FAILURE);
                     }
                     args[i] =
-                        (BuiltinFnArg){.is_ref = 1,
+                        (BuiltinFnArg){.is_ref = true,
                                        .ref = machine_get_var_ref(
                                            machine, expr->call.args[i].ident)};
                     continue;
                 }
 
                 args[i] = (BuiltinFnArg){
-                    .is_ref = 0,
+                    .is_ref = false,
                     .value = eval_expr(machine, &expr->call.args[i])};
                 continue;
             }
@@ -396,7 +393,7 @@ StrId eval_expr(Machine *machine, Expr *expr) {
                    "function required %lu\n",
                    (int)name->len, name->ptr, expr->call.num_args,
                    func.native.param_count);
-            exit(1);
+            exit(EXIT_FAILURE);
         }
         StrId empty = get_strid_empty();
         machine->current_scope = scope_make_child(machine->current_scope, 0);
@@ -422,11 +419,12 @@ StrId eval_expr(Machine *machine, Expr *expr) {
                             machine, func.native.param_names[i],
                             machine_get_var_ref(machine,
                                                 expr->call.args[i].ident),
-                            0);
+                            false);
                     }
                 } else {
                     machine_set_var(machine, func.native.param_names[i],
-                                    eval_expr(machine, &expr->call.args[i]), 0);
+                                    eval_expr(machine, &expr->call.args[i]),
+                                    false);
                 }
             } else {
                 if (func.native.param_is_ref[i]) {
@@ -439,7 +437,7 @@ StrId eval_expr(Machine *machine, Expr *expr) {
                     exit(EXIT_FAILURE);
                 }
                 machine_set_var_ref(machine, func.native.param_names[i], &empty,
-                                    0);
+                                    false);
             }
         }
 
@@ -463,7 +461,7 @@ StrId eval_expr(Machine *machine, Expr *expr) {
 
     default:
         puts("unimplemented");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -476,7 +474,7 @@ void interpret_node(Machine *machine, Node *ast) {
                 machine->return_pending) {
                 puts("Invalid control flow expression at top level "
                      "scope.");
-                exit(1);
+                exit(EXIT_FAILURE);
             }
         }
         break;
@@ -489,7 +487,7 @@ void interpret_node(Machine *machine, Node *ast) {
         StrId expr = eval_expr(machine, ast->if_statement.expr);
         if (expr == get_strid_true()) {
             machine->current_scope =
-                scope_make_child(machine->current_scope, 1);
+                scope_make_child(machine->current_scope, true);
             for (size_t i = 0; i < ast->if_statement.body_node_count; i++) {
                 interpret_node(machine, &ast->if_statement.body[i]);
                 if (machine->is_break || machine->is_continue ||
@@ -506,7 +504,7 @@ void interpret_node(Machine *machine, Node *ast) {
                 StrId elif_expr = eval_expr(machine, elif->elif_statement.expr);
                 if (elif_expr == get_strid_true()) {
                     machine->current_scope =
-                        scope_make_child(machine->current_scope, 1);
+                        scope_make_child(machine->current_scope, true);
                     for (size_t i = 0; i < elif->elif_statement.body_node_count;
                          i++) {
                         interpret_node(machine, &elif->elif_statement.body[i]);
@@ -527,17 +525,17 @@ void interpret_node(Machine *machine, Node *ast) {
     }
 
     case NODE_WHILE: {
-        machine->current_scope = scope_make_child(machine->current_scope, 1);
+        machine->current_scope = scope_make_child(machine->current_scope, true);
         while (eval_expr(machine, ast->while_statement.expr) ==
                get_strid_true()) {
             for (size_t i = 0; i < ast->while_statement.body_node_count; i++) {
                 interpret_node(machine, &ast->while_statement.body[i]);
                 if (machine->is_break || machine->return_pending) {
-                    machine->is_break = 0;
+                    machine->is_break = false;
                     goto break_sl_while;
                 }
                 if (machine->is_continue) {
-                    machine->is_continue = 0;
+                    machine->is_continue = false;
                     break;
                 }
             }
@@ -554,34 +552,32 @@ void interpret_node(Machine *machine, Node *ast) {
     }
 
     case NODE_RETURN: {
-        if (machine_is_in_func(machine)) {
-            if (ast->return_statement != NULL) {
-                machine->return_pending =
-                    eval_expr(machine, ast->return_statement);
-            } else {
-                machine->return_pending = get_strid_empty();
-            }
-            break;
+		if (machine->current_scope == NULL) {
+			puts("Return statement is not allowed on the global scope.");
+			exit(EXIT_FAILURE);
+		}
+
+        if (ast->return_statement != NULL) {
+            machine->return_pending = eval_expr(machine, ast->return_statement);
         } else {
-            puts("Return statements are not allowed outside of "
-                 "functions.");
-            exit(1);
+            machine->return_pending = get_strid_empty();
         }
+        break;
     }
 
     case NODE_BREAK: {
-        machine->is_break = 1;
+        machine->is_break = true;
         break;
     }
 
     case NODE_CONTINUE: {
-        machine->is_continue = 1;
+        machine->is_continue = true;
         break;
     }
 
     default:
         puts("unimplemented");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 }
 
@@ -591,8 +587,8 @@ void interpret(Node *ast) {
         .global_scope = global_scope,
         .current_scope = NULL,
         .return_pending = STRID_NULL,
-        .is_break = 0,
-        .is_continue = 0,
+        .is_break = false,
+        .is_continue = false,
     };
     machine_import_builtin_lib(&machine, BUILTIN_LIB_ESSENTIAL);
     interpret_node(&machine, ast);

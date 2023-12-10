@@ -153,7 +153,7 @@ StrId tok_str(ParseState *state) {
         if (next == EOF) {
             error_print(state->data, state->data_i, state->row, state->col,
                         "Error parsing string; ran into EOF");
-            return g_interner_intern("", 0);
+            buf[idx] = '\xAA';
         }
         if (idx == capacity) {
             capacity *= 2;
@@ -161,18 +161,43 @@ StrId tok_str(ParseState *state) {
         }
         if (next == '\\') {
             next = bump(state);
-            if (next == 'n') {
+            switch (next) {
+
+            case 'n':
                 buf[idx] = '\n';
-            } else if (next == '0') {
+                break;
+
+            case 'r':
+                buf[idx] = '\r';
+                break;
+
+            case '0':
                 buf[idx] = '\0';
-            } else {
-                char seq[3];
-                seq[0] = '\\';
-                seq[1] = next;
-                seq[2] = 0;
+                break;
+
+            case 'x': {
+                char c1 = bump(state);
+                char c2 = bump(state);
+                if (!isxdigit(c1) || !isxdigit(c2)) {
+                    char escape[5] = {'\\', 'x', c1, c2, '\0'};
+                    error_printf(state->data, state->data_i, state->row,
+                                 state->col,
+                                 "Invalid hex escape sequence. '%s'\n", escape);
+                    buf[idx] = '\xAA';
+                    break;
+                }
+                char hex[3] = {c1, c2, '\0'};
+                char result = strtol(hex, NULL, 16);
+                buf[idx] = result;
+                break;
+            }
+
+            default: {
+                char seq[3] = {'\\', next, '\0'};
                 error_printf(state->data, state->data_i, state->row, state->col,
                              "Invalid escape sequence '%s'.\n", seq);
-                buf[idx] = 'X';
+                buf[idx] = '\xAA';
+            }
             }
         } else {
             buf[idx] = next;
@@ -864,6 +889,8 @@ Node *parse_func_decl(ParseState *state) {
         continue;                                                              \
     }
 
+/// TODO: get rid of unnecessary frees (and the correlated unnecessary
+/// allocations)
 Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
     size_t nodes_capacity = 100;
     Node *nodes = malloc(sizeof(Node) * nodes_capacity);
@@ -891,11 +918,10 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
                 $RECOVER();
             }
 
-            Node *node = alloc_node(NODE_TOP_EXPR);
-            node->top_expr = expr;
+            Node node = (Node){.type = NODE_TOP_EXPR};
+            node.top_expr = expr;
 
-            nodes[nodes_len] = *node;
-            free(node);
+            nodes[nodes_len] = node;
             nodes_len += 1;
 
             break;
@@ -992,10 +1018,10 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
                     state->data, tok.i, tok.row, tok.col,
                     "Expected string in import statement, found '%.*s'.\n",
                     (int)tok.str->len, tok.str->ptr);
-				$RECOVER();
+                $RECOVER();
             }
-			nodes[nodes_len] = (Node){.type = NODE_IMPORT, .import = tok.str};
-			nodes_len += 1;
+            nodes[nodes_len] = (Node){.type = NODE_IMPORT, .import = tok.str};
+            nodes_len += 1;
 
             break;
         }
@@ -1009,6 +1035,7 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
 
             break;
         }
+
         }
     }
 

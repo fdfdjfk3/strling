@@ -60,6 +60,7 @@ typedef enum {
     NODE_RETURN,
     NODE_BREAK,
     NODE_CONTINUE,
+	NODE_IMPORT,
 } NodeType;
 
 typedef enum {
@@ -161,6 +162,9 @@ typedef struct Node {
 
         // return <expr>
         Expr *return_statement;
+
+		// import <str literal>
+		StrId import;
     };
 } Node;
 

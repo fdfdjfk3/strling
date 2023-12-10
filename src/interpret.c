@@ -499,6 +499,7 @@ void interpret_node(Machine *machine, Node *ast) {
             }
             machine->current_scope = scope_delete(machine->current_scope);
         } else {
+			// what does this even do
             for (size_t i = 0; i < ast->if_statement.num_elifs; i++) {
                 Node *elif = &ast->if_statement.elifs[i];
                 StrId elif_expr = eval_expr(machine, elif->elif_statement.expr);
@@ -574,6 +575,11 @@ void interpret_node(Machine *machine, Node *ast) {
         machine->is_continue = true;
         break;
     }
+
+	case NODE_IMPORT: {
+		puts("import statement is unimplemented");	
+		exit(EXIT_FAILURE);
+	}
 
     default:
         puts("unimplemented");

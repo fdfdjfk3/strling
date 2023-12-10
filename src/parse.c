@@ -833,11 +833,14 @@ Node *parse_func_decl(ParseState *state) {
 
     $EXPECT(TOK_CCURLY);
 
-	StrId *alloced_params = malloc(sizeof(StrId) * num_params);
-	memcpy(alloced_params, params, sizeof(StrId) * num_params);
-	bool *alloced_refs = malloc(sizeof(bool) * num_params);
-	memcpy(alloced_refs, param_is_ref, sizeof(bool) * num_params);
-		
+    StrId *alloced_params = NULL;
+    bool *alloced_refs = NULL;
+    if (num_params > 0) {
+        alloced_params = malloc(sizeof(StrId) * num_params);
+        memcpy(alloced_params, params, sizeof(StrId) * num_params);
+        alloced_refs = malloc(sizeof(bool) * num_params);
+        memcpy(alloced_refs, param_is_ref, sizeof(bool) * num_params);
+    }
 
     Node *decl = alloc_node(NODE_FUNCDECL);
     decl->func_decl.body_node_count = len;
@@ -881,7 +884,8 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             }
         }
 
-        if (token_type == TOK_IDENT) {
+        switch (token_type) {
+        case TOK_IDENT: {
             Expr *expr = parse_expr(state);
             if (expr == NULL) {
                 $RECOVER();
@@ -893,7 +897,11 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
-        } else if (token_type == TOK_IF) {
+
+            break;
+        }
+
+        case TOK_IF: {
             Node *node = parse_if_statement(state);
             if (node == NULL) {
                 $RECOVER();
@@ -902,7 +910,11 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
-        } else if (token_type == TOK_WHILE) {
+
+            break;
+        }
+
+        case TOK_WHILE: {
             Node *node = parse_while_statement(state);
             if (node == NULL) {
                 $RECOVER();
@@ -911,7 +923,11 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
-        } else if (token_type == TOK_FUNCTION) {
+
+            break;
+        }
+
+        case TOK_FUNCTION: {
             Node *node = parse_func_decl(state);
             if (node == NULL) {
                 $RECOVER();
@@ -920,7 +936,11 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             nodes[nodes_len] = *node;
             free(node);
             nodes_len += 1;
-        } else if (token_type == TOK_RETURN) {
+
+            break;
+        }
+
+        case TOK_RETURN: {
             Node return_statement = (Node){.type = NODE_RETURN};
             tok_next(state);
             Expr *expr;
@@ -935,26 +955,60 @@ Node *parse_body(ParseState *state, size_t *out_len, ParseContext context) {
             return_statement.return_statement = expr;
             nodes[nodes_len] = return_statement;
             nodes_len += 1;
-        } else if (token_type == TOK_CONTINUE) {
+
+            break;
+        }
+
+        case TOK_CONTINUE: {
             tok_next(state);
             nodes[nodes_len] = (Node){.type = NODE_CONTINUE};
             nodes_len += 1;
-        } else if (token_type == TOK_BREAK) {
+
+            break;
+        }
+
+        case TOK_BREAK: {
             tok_next(state);
             nodes[nodes_len] = (Node){.type = NODE_BREAK};
             nodes_len += 1;
 
-        } else if (token_type == TOK_NEWLINE) {
-            tok_next(state);
-            continue;
-        } else if (token_type == TOK_EOF) {
             break;
-        } else {
+        }
+
+        case TOK_NEWLINE: {
+            tok_next(state);
+            break;
+        }
+
+        case TOK_EOF: {
+            break;
+        }
+
+        case TOK_IMPORT: {
+            tok_next(state);
+            Token tok = tok_next(state);
+            if (tok.type != TOK_STR) {
+                error_printf(
+                    state->data, tok.i, tok.row, tok.col,
+                    "Expected string in import statement, found '%.*s'.\n",
+                    (int)tok.str->len, tok.str->ptr);
+				$RECOVER();
+            }
+			nodes[nodes_len] = (Node){.type = NODE_IMPORT, .import = tok.str};
+			nodes_len += 1;
+
+            break;
+        }
+
+        default: {
             Token t = tok_next(state);
             error_printf(state->data, t.i, t.row, t.col,
                          "Invalid top-level statement. Found: '%.*s'.\n",
                          (int)t.str->len, t.str->ptr);
             $RECOVER();
+
+            break;
+        }
         }
     }
 

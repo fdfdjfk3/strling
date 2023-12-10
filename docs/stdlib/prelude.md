@@ -1,47 +1,49 @@
 # Stdlib module 'Prelude'
 
+This stuff is included by default.
+
 ## Globals:
 
 None.
 
 ## Functions:
 
-### `print(str: string) -> unit`
+### `print(str: any) 0`
 
 Prints `str` to stdout
 
-### `println(str: string) -> unit`
+### `println(str: any) 0`
 
 Prints `str` to stdout with an added newline at the end
 
-### `getchar() -> byte`
+### `getchar() <=1`
 
 Gets a character from stdin
 
-### `getline() -> string`
+### `getline() <2048`
 
 Get a line from stdin
 
-### `pop(ref str: string) -> byte|unit`
+### `pop(ref str: any) <=1`
 
 Removes a byte from the right side of `str` and returns it
 
-### `popl(ref str: string) -> byte|unit`
+### `popl(ref str: any) <=1`
 
 Removes a byte from the left side of `str` and returns it
 
-### `pop_substr(ref str: string, delim: string) -> string`
+### `pop_substr(ref str: any, delim: any) any`
 
 Removes a substring delimited by `delim` from the right side of `str`, and returns it
 
-### `popl_substr(ref str: string, delim: string) -> string`
+### `popl_substr(ref str: any, delim: any) any`
 
 Removes a substring delimited by `delim` from the left side of `str`, and returns it
 
-### `rev(str: string) -> string`
+### `rev(str: any) any`
 
 Returns `str` reversed
 
-### `replace(str: string, target: string, replacement: string) -> string`
+### `replace(str: any, target: any, replacement: any) any`
 
 Returns `str` with all instances of substring `target` replaced with `replacement`

@@ -31,7 +31,14 @@ StrId SLgetchar(BuiltinFnArgList args) {
 StrId SLgetline(BuiltinFnArgList args) {
     char buf[MAX_LINE_LEN];
     fgets(buf, MAX_LINE_LEN, stdin);
-    return g_interner_intern(buf, strlen(buf) - 1);
+    size_t len = strlen(buf);
+
+    if (len == 0) {
+        return get_strid_empty();
+    } else {
+        // scrape trailing newline from terminal input
+        return g_interner_intern(buf, len - 1);
+    }
 }
 
 // TODO: make concatting a lazy operation to reduce allocations, use like
@@ -141,20 +148,25 @@ StrId SLpop_substr(BuiltinFnArgList args) {
         return get_strid_empty();
     }
 
+    bool hit_delim = false;
     size_t len_to_pop = 0;
 
-    for (len_to_pop = 0; len_to_pop < (*str)->len - (delim->len - 1);
-         len_to_pop++) {
+    for (len_to_pop = 0; len_to_pop <= (*str)->len - delim->len; len_to_pop++) {
         if (memcmp((*str)->ptr + ((*str)->len - 1 - len_to_pop), delim->ptr,
                    delim->len) == 0) {
+            hit_delim = true;
             break;
         }
     }
 
-    size_t remaining_len = (*str)->len - (len_to_pop + delim->len);
+    size_t remaining_len =
+        (hit_delim) ? (*str)->len - (len_to_pop + delim->len) : 0;
+
     StrId ret =
         g_interner_intern((*str)->ptr + ((*str)->len - len_to_pop), len_to_pop);
-    *str = g_interner_intern((*str)->ptr, remaining_len);
+
+    *str = (hit_delim) ? g_interner_intern((*str)->ptr, remaining_len)
+                       : get_strid_empty();
 
     return ret;
 }
@@ -167,19 +179,25 @@ StrId SLpopl_substr(BuiltinFnArgList args) {
         return get_strid_empty();
     }
 
+    bool hit_delim = false;
     size_t len_to_pop = 0;
 
-    for (len_to_pop = 0; len_to_pop < (*str)->len - (delim->len - 1);
-         len_to_pop++) {
+    for (len_to_pop = 0; len_to_pop <= (*str)->len - delim->len; len_to_pop++) {
         if (memcmp((*str)->ptr + len_to_pop, delim->ptr, delim->len) == 0) {
+            hit_delim = true;
             break;
         }
     }
 
-    size_t remaining_len = (*str)->len - (len_to_pop + delim->len);
+    size_t remaining_len =
+        (hit_delim) ? (*str)->len - (len_to_pop + delim->len) : 0;
+
     StrId ret = g_interner_intern((*str)->ptr, len_to_pop);
-    *str =
-        g_interner_intern((*str)->ptr + len_to_pop + delim->len, remaining_len);
+
+    *str = (hit_delim)
+               ? g_interner_intern((*str)->ptr + len_to_pop + delim->len,
+                                   remaining_len)
+               : get_strid_empty();
 
     return ret;
 }
@@ -188,11 +206,15 @@ StrId SLrev(BuiltinFnArgList args) {
     $EXPECT_STRID_ARG(str, 0);
 
     char *new = malloc(str->len);
+	if (new == NULL) {
+		puts("Allocation error in SLrev");
+		exit(EXIT_FAILURE);
+	}
     for (size_t i = 0; i < str->len; i++) {
         new[str->len - (i + 1)] = str->ptr[i];
     }
 
-    return g_interner_intern(new, str->len);
+    return g_interner_intern_noalloc(new, str->len);
 }
 
 StrId SLreplace(BuiltinFnArgList args) {
@@ -200,12 +222,16 @@ StrId SLreplace(BuiltinFnArgList args) {
     $EXPECT_STRID_ARG(replace, 1);
     $EXPECT_STRID_ARG(with, 2);
 
-    if (replace == with || replace->len == 0) {
+    if (replace == with || replace->len == 0 || str->len == 0) {
         return str;
     }
 
     // Maximum possible size that the output string could be.
     char *buffer = malloc(str->len * with->len);
+    if (buffer == NULL) {
+        puts("Allocation error in SLreplace");
+        exit(EXIT_FAILURE);
+    }
     size_t len = 0;
 
     for (size_t i = 0; i < str->len; i++) {
@@ -222,10 +248,10 @@ StrId SLreplace(BuiltinFnArgList args) {
     }
 
     buffer = realloc(buffer, len);
-	if (buffer == NULL) {
-		puts("Allocation error in SLreplace");
-		exit(EXIT_FAILURE);
-	}
+    if (buffer == NULL) {
+        puts("Allocation error in SLreplace");
+        exit(EXIT_FAILURE);
+    }
 
-	return g_interner_intern_noalloc(buffer, len);
+    return g_interner_intern_noalloc(buffer, len);
 }
